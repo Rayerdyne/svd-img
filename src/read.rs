@@ -6,7 +6,8 @@ struct FileReader {
     file: File,
 }
 
-enum FileReaderError {
+#[derive(Debug)]
+pub enum FileReaderError {
     UnexpectedEOF
 }
 
