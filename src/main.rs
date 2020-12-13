@@ -5,7 +5,7 @@ mod decode;
 
 extern crate clap;
 use clap::{Arg, App};
-use encode::encode;
+use encode::{encode, EncodeOptions};
 use decode::decode;
 
 const ERROR: u8 = 0;
@@ -14,7 +14,9 @@ const DECODE: u8 = 2;
 
 #[derive(Debug)]
 pub enum Error {
-    FileReaderError(read::FileReaderError)
+    FileReaderError(read::FileReaderError),
+    ImageReadError,
+    ImageFormatError
 }
 
 
@@ -36,6 +38,15 @@ fn app_args() -> clap::ArgMatches<'static> {
             .short("m")
             .takes_value(true)
             .possible_values(&["enc", "dec", "encode", "decode", "e", "d"]))
+        .arg(Arg::with_name("num-vectors")
+            .help("Sets the number of vectors to store in the compressed file.")
+            .short("n")
+            .takes_value(true))
+        .arg(Arg::with_name("compression-ratio")
+            .help("Sets the compression ratio, in percentage. (clashes with -n option).")
+            .short("p")
+            .takes_value(true)
+            .conflicts_with("num-vectors"))
 
         .get_matches()
 }
@@ -57,7 +68,36 @@ fn main() -> Result<(), Error> {
     }
 
     else if action_type == ENCODE {
-        encode(input, output)?;
+        let options = match matches.value_of("num-vectors") {
+            Some(n_str) => match n_str.parse::<usize>() {
+                Ok(n) => EncodeOptions::with_number(n),
+                Err(e) => {
+                    println!("Invalid number of vectors: {:?}", e);
+                    return Ok(())
+                }
+            },
+            None => match matches.value_of("compression-ratio") {
+                Some(r_str) => match r_str.parse::<u8>() {
+                    Ok(r) => {
+                        if r > 100 {
+                            println!("Compression ratio cannot exceed 100% !");
+                            return Ok(());
+                        }
+                        EncodeOptions::with_ratio(r)
+                    },
+                    Err(e) => {
+                        println!("Invalid compression ratio: {:?}", e);
+                        return Ok(())
+                    }
+                }
+                None => {
+                    println!("Using default compression ratio (25%).");
+                    EncodeOptions::with_ratio(25)
+                }
+            }
+        };
+
+        encode(input, output, options)?;
     }
     
     else if action_type == DECODE {
