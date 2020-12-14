@@ -20,7 +20,7 @@ pub enum Error {
     FileWriteError(IOError),
     ImageReadError,
     ImageFormatError,
-    SVDError, NoSVDResult
+    SVDError, NoSVDResult, NTooSmall
 }
 
 impl std::convert::From<IOError> for Error {
@@ -29,6 +29,11 @@ impl std::convert::From<IOError> for Error {
     }
 }
 
+impl std::convert::From<read::FileReaderError> for Error {
+    fn from(e: read::FileReaderError) -> Self {
+        Error::FileReaderError(e)
+    }
+}
 
 fn app_args() -> clap::ArgMatches<'static> {
     App::new("svd-img")

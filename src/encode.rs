@@ -1,8 +1,10 @@
-use super::Error;
+use super::{
+    Error,
+    write::FileWriter
+};
 
 use std::fs::File;
 
-use super::write::FileWriter;
 
 use image::{
     io::Reader as ImageReader,
@@ -77,6 +79,8 @@ fn matrix_reduce(matrix: DMatrix<u8>, options: EncodeOptions)
             n2 as usize
         }
     };
+
+    if n <= 0  {  return Err(Error::NTooSmall);  }
 
     let m2 = DMatrix::from_fn(h, w, |i, j| matrix[(i, j)] as f64);
 

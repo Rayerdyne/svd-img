@@ -3,7 +3,7 @@ use std::{
     fs::File,
 };
 
-struct FileReader {
+pub struct FileReader {
     file: File,
 }
 
