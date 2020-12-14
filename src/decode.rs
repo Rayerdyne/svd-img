@@ -14,9 +14,9 @@ type SVDVectors = Vec<(f64, DVector<f64>, DVector<f64>)>;
 pub fn decode(input: &str, output: &str) -> Result<(), Error> {
     let vectors = read_file(input)?;
 
-    let matrix = recompute_matrix(vectors)?;
+    let matrix = recompute_matrix(&vectors)?;
 
-    let imgbuf = imgbuf_from_matrix(matrix)?;
+    let imgbuf = imgbuf_from_matrix(&matrix)?;
 
     imgbuf.save(output).unwrap();
 
@@ -33,7 +33,9 @@ fn read_file(name: &str) -> Result<SVDVectors, Error> {
 
     let mut res = Vec::with_capacity(n);
 
-    for i in 0..n {
+    println!("n: {}", n);
+
+    for _i in 0..n {
         let sv_i = fr.read_f64()?;
         let mut u_i   = DVector::<f64>::zeros(height);
         let mut v_t_i = DVector::<f64>::zeros(width);
@@ -42,17 +44,18 @@ fn read_file(name: &str) -> Result<SVDVectors, Error> {
         for j in 0..width 
             { v_t_i[j] = fr.read_f64()?; }
 
-        res[i] = (sv_i, u_i, v_t_i);
+        res.push((sv_i, u_i, v_t_i));
     }
 
     Ok(res)
 }
 
-fn recompute_matrix(vectors: SVDVectors) -> Result<DMatrix<u8>, Error> {
+pub fn recompute_matrix(vectors: &SVDVectors) -> Result<DMatrix<u8>, Error> {
     let n = vectors.len();
     if n <= 0  {  return Err(Error::NTooSmall);  }
     let height = vectors[0].1.nrows();
     let width  = vectors[0].2.nrows();
+    println!("(h, w) = ({}, {})", height, width);
 
     let mut m = DMatrix::<f64>::zeros(height, width);
 
@@ -67,6 +70,7 @@ fn recompute_matrix(vectors: SVDVectors) -> Result<DMatrix<u8>, Error> {
         }
     }
 
+    println!("m (float recomputed matrix) {}", m);
     let m2 = DMatrix::from_fn(height, width, |i, j| {
         m[(i, j)].round() as u8
     });
@@ -74,7 +78,7 @@ fn recompute_matrix(vectors: SVDVectors) -> Result<DMatrix<u8>, Error> {
     Ok(m2)
 }
 
-fn imgbuf_from_matrix(matrix: DMatrix<u8>) -> Result<RgbaImage, Error> {
+fn imgbuf_from_matrix(matrix: &DMatrix<u8>) -> Result<RgbaImage, Error> {
     let (m_height, m_width) = matrix.shape();
     let (height, width) = (m_height as u32/ 2, m_width as u32/ 2);
 
@@ -82,10 +86,10 @@ fn imgbuf_from_matrix(matrix: DMatrix<u8>) -> Result<RgbaImage, Error> {
 
     for (x, y, pixel) in imgbuf.enumerate_pixels_mut() {
         let (i, j) = (x as usize, y as usize);
-        let r = matrix[(i  , j  )];
-        let g = matrix[(i+1, j  )];
-        let b = matrix[(i  , j+1)];
-        let a = matrix[(i+1, j+1)];
+        let r = matrix[(2*i  , 2*j  )];
+        let g = matrix[(2*i+1, 2*j  )];
+        let b = matrix[(2*i  , 2*j+1)];
+        let a = matrix[(2*i+1, 2*j+1)];
         *pixel = Rgba([r, g, b, a]);
     }
 

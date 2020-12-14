@@ -5,12 +5,11 @@ mod decode;
 
 extern crate clap;
 use clap::{Arg, App};
-use encode::{encode, EncodeOptions};
+use encode::{encode, EncodeOptions, CompressionPolicy};
 use decode::decode;
 
 use std::io::Error as IOError;
 
-const ERROR: u8 = 0;
 const ENCODE: u8 = 1;
 const DECODE: u8 = 2;
 
@@ -46,13 +45,16 @@ fn app_args() -> clap::ArgMatches<'static> {
             .index(1))
         .arg(Arg::with_name("output")
             .help("Set the output file name. Default output name is 'output.svd'.")
-            .required(true)
             .index(2))
-        .arg(Arg::with_name("type")
-            .help("Sets the mode: encode (enc, e) or decode (dec, d)")
-            .short("m")
-            .takes_value(true)
-            .possible_values(&["enc", "dec", "encode", "decode", "e", "d"]))
+        .arg(Arg::with_name("mode-encode")
+            .help("Sets the mode to encode (clashes with -d) (default)")
+            .short("e")
+            .long("encode"))
+        .arg(Arg::with_name("mode-decode")
+            .help("Sets the mode to decode (clashes with -e)")
+            .short("d")
+            .long("decode")
+            .conflicts_with("mode-encode"))
         .arg(Arg::with_name("num-vectors")
             .help("Sets the number of vectors to store in the compressed file.")
             .short("n")
@@ -62,6 +64,15 @@ fn app_args() -> clap::ArgMatches<'static> {
             .short("p")
             .takes_value(true)
             .conflicts_with("num-vectors"))
+        .arg(Arg::with_name("type-f32")
+            .help("Sets the type used to represent float values to f32 (simple precision)")
+            .short("f32")
+            .long("simple-precision"))
+        .arg(Arg::with_name("type-f64")
+            .help("Sets the type used to represent float values to f64 (double precision) (default)")
+            .short("f64")
+            .long("double-precision")
+            .conflicts_with("type-f32"))
 
         .get_matches()
 }
@@ -72,20 +83,17 @@ fn main() -> Result<(), Error> {
     let input = matches.value_of("input").unwrap();
     let output = matches.value_of("output").unwrap_or("output.svd");
 
-    let action_type = match matches.value_of("type").unwrap_or("encode") {
-        "encode" | "enc" | "e" => ENCODE,
-        "decode" | "dec" | "d" => DECODE,
-        _ => ERROR
-    };
+    let options: EncodeOptions;
 
-    if action_type == ERROR {
-        println!("Could not parse arguments for some reason (?!)");
-    }
+    let action_type = if matches.is_present("mode-decode") { DECODE }
+                      else { ENCODE };
+    
+    options.use_f64 = matches.is_present("type-f64");
 
-    else if action_type == ENCODE {
-        let options = match matches.value_of("num-vectors") {
+    if action_type == ENCODE {
+        options.policy = match matches.value_of("num-vectors") {
             Some(n_str) => match n_str.parse::<usize>() {
-                Ok(n) => EncodeOptions::with_number(n),
+                Ok(n) => CompressionPolicy::with_number(n),
                 Err(e) => {
                     println!("Invalid number of vectors: {:?}", e);
                     return Ok(())
@@ -98,7 +106,7 @@ fn main() -> Result<(), Error> {
                             println!("Compression ratio cannot exceed 100% !");
                             return Ok(());
                         }
-                        EncodeOptions::with_ratio(r)
+                        CompressionPolicy::with_ratio(r)
                     },
                     Err(e) => {
                         println!("Invalid compression ratio: {:?}", e);
@@ -107,16 +115,22 @@ fn main() -> Result<(), Error> {
                 }
                 None => {
                     println!("Using default compression ratio (25%).");
-                    EncodeOptions::with_ratio(25)
+                    CompressionPolicy::with_ratio(25)
                 }
             }
         };
 
-        encode(input, output, options)?;
+        match encode(input, output, options) {
+            Err(e) => println!("Could not encode {}: {:?}.", input, e),
+            Ok(_) => {}
+        }
     }
     
     else if action_type == DECODE {
-        decode(input, output)?;
+        match decode(input, output) {
+            Err(e) => println!("Could not decode {}: {:?}.", input, e),
+            Ok(_) => {}
+        }
     }
 
     Ok(())

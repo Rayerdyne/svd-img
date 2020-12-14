@@ -1,6 +1,7 @@
 use super::{
     Error,
-    write::FileWriter
+    write::FileWriter,
+    decode::recompute_matrix
 };
 
 use std::fs::File;
@@ -16,7 +17,12 @@ use nalgebra::{ DMatrix, DVector };
 
 type SVDVectors = Vec<(f64, DVector<f64>, DVector<f64>)>;
 
-pub enum EncodeOptions {
+pub struct EncodeOptions {
+    pub policy: CompressionPolicy,
+    pub use_f64: bool
+}
+
+pub enum CompressionPolicy {
     Number(usize),
     Ratio(u8)
 }
@@ -28,12 +34,18 @@ pub fn encode(input: &str, output: &str, options: EncodeOptions)
 
     let img = read_image_file(input)?;
 
-    let matrix = image_matrix(img.into_rgba8());
+    let xx = img.into_rgba8();
+    println!("image dimensions: {:?}", xx.dimensions());
 
-    let vectors = matrix_reduce(matrix, options)?;
+    let matrix = image_matrix(xx);
+    println!("original matrix: {}", matrix);
 
-    write_vectors(output, vectors)?;
+    let vectors = matrix_reduce(&matrix, options)?;
 
+    let recomputed = recompute_matrix(&vectors)?;
+    println!("recomputed matrix: {}", recomputed);
+
+    write_vectors(output, &vectors)?;
     Ok(())
 }
 
@@ -55,23 +67,23 @@ fn image_matrix(img: RgbaImage) -> DMatrix<u8> {
     for i in 0..(dim.0 as usize) {
         for j in 0..(dim.1 as usize) {
             let pixel = img[(i as u32, j as u32)];
-            a[(i,   j  )] = pixel[0];
-            a[(i+1, j  )] = pixel[1];
-            a[(i,   j+1)] = pixel[2];
-            a[(i+1, j+1)] = pixel[3];
+            a[(2*i,   2*j  )] = pixel[0];
+            a[(2*i+1, 2*j  )] = pixel[1];
+            a[(2*i,   2*j+1)] = pixel[2];
+            a[(2*i+1, 2*j+1)] = pixel[3];
         }
     }
 
     a
 }
 
-fn matrix_reduce(matrix: DMatrix<u8>, options: EncodeOptions)
+fn matrix_reduce(matrix: &DMatrix<u8>, options: EncodeOptions)
     -> Result<SVDVectors, Error> {
     
     let (h, w) = matrix.shape();
-    let n = match options {
-        EncodeOptions::Number(n) => n,
-        EncodeOptions::Ratio(r) => {
+    let n = match options.policy {
+        CompressionPolicy::Number(n) => n,
+        CompressionPolicy::Ratio(r) => {
             // TODO: check cuz sizeof(f64) = 8*sizeof(u8)
             let r2 = r as f64 / 100_f64;
             let n2 = r2 * (h as f64 * w as f64) / 
@@ -81,12 +93,14 @@ fn matrix_reduce(matrix: DMatrix<u8>, options: EncodeOptions)
     };
 
     if n <= 0  {  return Err(Error::NTooSmall);  }
+    println!("n: {}", n);
 
     let m2 = DMatrix::from_fn(h, w, |i, j| matrix[(i, j)] as f64);
 
     let svd = match m2.try_svd(true, true, 1.0e-5, 0) {
         Some(x) => x,
         None => return Err(Error::SVDError)
+        
     };
 
     let u = match svd.u {
@@ -105,14 +119,14 @@ fn matrix_reduce(matrix: DMatrix<u8>, options: EncodeOptions)
     for i in 0..n {
         let sv_i = sv[i];
         let u_i = DVector::<f64>::from_column_slice(u.column(i).as_slice());
-        let v_t_i = DVector::<f64>::from_column_slice(v_t.column(i).as_slice());
+        let v_t_i= DVector::from_fn(w, |x, _| {  v_t[(i, x)]  });
         res.push((sv_i, u_i, v_t_i));
     }
 
     Ok(res)
 }
 
-fn write_vectors(output: &str, vectors: SVDVectors) -> Result<(), Error> {
+fn write_vectors(output: &str, vectors: &SVDVectors) -> Result<(), Error> {
     let f = match File::create(output) {
         Ok(file) => file,
         Err(e) => return Err(Error::FileWriteError(e))
@@ -122,7 +136,7 @@ fn write_vectors(output: &str, vectors: SVDVectors) -> Result<(), Error> {
 
     let n = vectors.len();
     let height = vectors[0].1.nrows();
-    let width = vectors[0].1.nrows();
+    let width = vectors[0].2.nrows();
     fw.write_u32(n as u32)?;
     fw.write_u32(height as u32)?;
     fw.write_u32(width as u32)?;
@@ -139,11 +153,11 @@ fn write_vectors(output: &str, vectors: SVDVectors) -> Result<(), Error> {
     Ok(())
 }
 
-impl EncodeOptions {
+impl CompressionPolicy {
     pub fn with_number(n: usize) -> Self {
-        EncodeOptions::Number(n)
+        CompressionPolicy::Number(n)
     }
     pub fn with_ratio(r: u8) -> Self {
-        EncodeOptions::Ratio(r)
+        CompressionPolicy::Ratio(r)
     }
 }
