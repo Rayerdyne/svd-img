@@ -9,31 +9,34 @@ use nalgebra::{ DMatrix, DVector };
 
 use image::{ RgbaImage, ImageBuffer, Rgba };
 
-type SVDVectors = Vec<(f64, DVector<f64>, DVector<f64>)>;
+type SVDVectors<T> = Vec<(T, DVector<T>, DVector<T>)>;
 
 pub fn decode(input: &str, output: &str) -> Result<(), Error> {
-    let vectors = read_file(input)?;
-
-    let matrix = recompute_matrix(&vectors)?;
-
-    let imgbuf = imgbuf_from_matrix(&matrix)?;
+    let f = File::open(input)?;
+    let mut fr = FileReader::new(f);
+    let use_f64 = if fr.read_u8()? >= 1 { true } else { false };
+    
+    let imgbuf = if use_f64 {
+        let vectors = read_file_f64(&mut fr)?;
+        let matrix = recompute_matrix_f64(&vectors)?;
+        imgbuf_from_matrix(&matrix)?
+    }
+    else {
+        let vectors = read_file_f32(&mut fr)?;
+        let matrix = recompute_matrix_f32(&vectors)?;
+        imgbuf_from_matrix(&matrix)?
+    };
 
     imgbuf.save(output).unwrap();
 
     Ok(())
 }
 
-fn read_file(name: &str) -> Result<SVDVectors, Error> {
-    let f = File::open(name)?;
-    let mut fr = FileReader::new(f);
+fn read_file_f64(fr: &mut FileReader) -> Result<SVDVectors<f64>, Error> {
 
-    let n = fr.read_u32()? as usize;
-    let height = fr.read_u32()? as usize;
-    let width  = fr.read_u32()? as usize;
+    let (n, height, width) = read_file_header(fr)?;
 
     let mut res = Vec::with_capacity(n);
-
-    println!("n: {}", n);
 
     for _i in 0..n {
         let sv_i = fr.read_f64()?;
@@ -50,12 +53,42 @@ fn read_file(name: &str) -> Result<SVDVectors, Error> {
     Ok(res)
 }
 
-pub fn recompute_matrix(vectors: &SVDVectors) -> Result<DMatrix<u8>, Error> {
+fn read_file_f32(fr: &mut FileReader) -> Result<SVDVectors<f32>, Error> {
+
+    let (n, height, width) = read_file_header(fr)?;
+
+    let mut res = Vec::with_capacity(n);
+
+    for _i in 0..n {
+        let sv_i = fr.read_f32()?;
+        let mut u_i   = DVector::<f32>::zeros(height);
+        let mut v_t_i = DVector::<f32>::zeros(width);
+        for j in 0..height 
+            { u_i[j] = fr.read_f32()?; }
+        for j in 0..width 
+            { v_t_i[j] = fr.read_f32()?; }
+
+        res.push((sv_i, u_i, v_t_i));
+    }
+
+    Ok(res)
+}
+
+fn read_file_header(fr: &mut FileReader) -> Result<(usize, usize, usize), Error> {
+    let n = fr.read_u32()? as usize;
+    let height = fr.read_u32()? as usize;
+    let width  = 
+    fr.read_u32()? as usize;
+    Ok((n, height, width))
+}
+
+pub fn recompute_matrix_f64(vectors: &SVDVectors<f64>) 
+    -> Result<DMatrix<u8>, Error> {
+    
     let n = vectors.len();
     if n <= 0  {  return Err(Error::NTooSmall);  }
     let height = vectors[0].1.nrows();
     let width  = vectors[0].2.nrows();
-    println!("(h, w) = ({}, {})", height, width);
 
     let mut m = DMatrix::<f64>::zeros(height, width);
 
@@ -70,13 +103,42 @@ pub fn recompute_matrix(vectors: &SVDVectors) -> Result<DMatrix<u8>, Error> {
         }
     }
 
-    println!("m (float recomputed matrix) {}", m);
     let m2 = DMatrix::from_fn(height, width, |i, j| {
         m[(i, j)].round() as u8
     });
 
     Ok(m2)
 }
+
+pub fn recompute_matrix_f32(vectors: &SVDVectors<f32>) 
+    -> Result<DMatrix<u8>, Error> {
+    
+    let n = vectors.len();
+    if n <= 0  {  return Err(Error::NTooSmall);  }
+    let height = vectors[0].1.nrows();
+    let width  = vectors[0].2.nrows();
+
+    let mut m = DMatrix::<f32>::zeros(height, width);
+
+    for i in 0..n {
+        let triplet = &vectors[i];
+        for j in 0..height {
+            for k in 0..width {
+                m[(j, k)] += triplet.0 *
+                             triplet.1[j] *
+                             triplet.2[k];
+            }
+        }
+    }
+
+    let m2 = DMatrix::from_fn(height, width, |i, j| {
+        m[(i, j)].round() as u8
+    });
+
+    Ok(m2)
+}
+
+
 
 fn imgbuf_from_matrix(matrix: &DMatrix<u8>) -> Result<RgbaImage, Error> {
     let (m_height, m_width) = matrix.shape();

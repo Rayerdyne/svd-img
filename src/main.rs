@@ -19,7 +19,8 @@ pub enum Error {
     FileWriteError(IOError),
     ImageReadError,
     ImageFormatError,
-    SVDError, NoSVDResult, NTooSmall
+    SVDError, NoSVDResult, 
+    NTooSmall, RatioTooRestrictive
 }
 
 impl std::convert::From<IOError> for Error {
@@ -44,7 +45,8 @@ fn app_args() -> clap::ArgMatches<'static> {
             .required(true)
             .index(1))
         .arg(Arg::with_name("output")
-            .help("Set the output file name. Default output name is 'output.svd'.")
+            .help("Set the output file name.")
+            .required(true)
             .index(2))
         .arg(Arg::with_name("mode-encode")
             .help("Sets the mode to encode (clashes with -d) (default)")
@@ -60,19 +62,34 @@ fn app_args() -> clap::ArgMatches<'static> {
             .short("n")
             .takes_value(true))
         .arg(Arg::with_name("compression-ratio")
-            .help("Sets the compression ratio, in percentage. (clashes with -n option).")
+            .help("Sets the compression ratio, in percentage, compared to the \
+                   uncompressed RGBA image. (clashes with -n option).")
             .short("p")
             .takes_value(true)
             .conflicts_with("num-vectors"))
         .arg(Arg::with_name("type-f32")
-            .help("Sets the type used to represent float values to f32 (simple precision)")
-            .short("f32")
+            .help("Sets the type used to represent float values to f32 \
+                  (simple precision)")
+            .short("4")
             .long("simple-precision"))
         .arg(Arg::with_name("type-f64")
-            .help("Sets the type used to represent float values to f64 (double precision) (default)")
-            .short("f64")
+            .help("Sets the type used to represent float values to f64 \
+                   (double precision) (default)")
+            .short("8")
             .long("double-precision")
             .conflicts_with("type-f32"))
+        .arg(Arg::with_name("epsilon")
+            .help("Sets the tolerance used to determine if a value converged \
+                   to zero (simple precision) used to compute the SVD")
+            .short("E")
+            .long("epsilon")
+            .takes_value(true))
+        .arg(Arg::with_name("n-iter")
+            .help("Sets the maximum number of iteration when computing the \
+SVD, 0 for iterating until convergence")
+            .short("i")
+            .long("n-iter")
+            .takes_value(true))
 
         .get_matches()
 }
@@ -81,45 +98,62 @@ fn main() -> Result<(), Error> {
     let matches = app_args();
 
     let input = matches.value_of("input").unwrap();
-    let output = matches.value_of("output").unwrap_or("output.svd");
-
-    let options: EncodeOptions;
+    let output = matches.value_of("output").unwrap();
 
     let action_type = if matches.is_present("mode-decode") { DECODE }
                       else { ENCODE };
-    
-    options.use_f64 = matches.is_present("type-f64");
 
-    if action_type == ENCODE {
-        options.policy = match matches.value_of("num-vectors") {
-            Some(n_str) => match n_str.parse::<usize>() {
-                Ok(n) => CompressionPolicy::with_number(n),
+    let mut options = EncodeOptions::default();
+    
+    options.use_f64 = !matches.is_present("type-f32");
+    options.eps = match matches.value_of("epsilon").unwrap_or("1.0e-5")
+                               .parse::<f32>() {
+        Ok(x) => x,
+        Err(e) => {
+            println!("Invalid epsilon provided: {:?}", e);
+            return Ok(());
+        }
+    };
+    options.n_iter = match matches.value_of("n-iter").unwrap_or("0")
+                                  .parse::<usize>() {
+        Ok(n) => n,
+        Err(e) => {
+            println!("Invalid number of iterations: {:?}", e);
+            return Ok(());
+        }
+    };
+    options.policy = match matches.value_of("num-vectors") {
+        Some(n_str) => match n_str.parse::<usize>() {
+            Ok(n) => CompressionPolicy::with_number(n),
+            Err(e) => {
+                println!("Invalid number of vectors: {:?}", e);
+                return Ok(())
+            }
+        },
+        None => match matches.value_of("compression-ratio") {
+            Some(r_str) => match r_str.parse::<u8>() {
+                Ok(r) => {
+                    if r > 100 {
+                        println!("Compression ratio cannot exceed 100% !");
+                        return Ok(());
+                    }
+                    CompressionPolicy::with_ratio_percentage(r)
+                },
                 Err(e) => {
-                    println!("Invalid number of vectors: {:?}", e);
+                    println!("Invalid compression ratio: {:?}", e);
                     return Ok(())
                 }
-            },
-            None => match matches.value_of("compression-ratio") {
-                Some(r_str) => match r_str.parse::<u8>() {
-                    Ok(r) => {
-                        if r > 100 {
-                            println!("Compression ratio cannot exceed 100% !");
-                            return Ok(());
-                        }
-                        CompressionPolicy::with_ratio(r)
-                    },
-                    Err(e) => {
-                        println!("Invalid compression ratio: {:?}", e);
-                        return Ok(())
-                    }
-                }
-                None => {
-                    println!("Using default compression ratio (25%).");
-                    CompressionPolicy::with_ratio(25)
-                }
             }
-        };
+            None => {
+                if action_type == ENCODE {
+                    println!("Using default compression ratio (25%).");
+                }
+                CompressionPolicy::with_ratio_percentage(25)
+            }
+        }
+    };
 
+    if action_type == ENCODE {
         match encode(input, output, options) {
             Err(e) => println!("Could not encode {}: {:?}.", input, e),
             Ok(_) => {}
