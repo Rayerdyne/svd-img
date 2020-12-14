@@ -8,6 +8,8 @@ use clap::{Arg, App};
 use encode::{encode, EncodeOptions};
 use decode::decode;
 
+use std::io::Error as IOError;
+
 const ERROR: u8 = 0;
 const ENCODE: u8 = 1;
 const DECODE: u8 = 2;
@@ -15,8 +17,16 @@ const DECODE: u8 = 2;
 #[derive(Debug)]
 pub enum Error {
     FileReaderError(read::FileReaderError),
+    FileWriteError(IOError),
     ImageReadError,
-    ImageFormatError
+    ImageFormatError,
+    SVDError, NoSVDResult
+}
+
+impl std::convert::From<IOError> for Error {
+    fn from(e: IOError) -> Self {
+        Error::FileWriteError(e)
+    }
 }
 
 

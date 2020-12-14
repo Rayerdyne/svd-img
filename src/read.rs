@@ -1,7 +1,6 @@
 use std::{
     io::{Read, Error as IOError},
     fs::File,
-    convert::From
 };
 
 struct FileReader {
@@ -70,7 +69,7 @@ impl FileReader {
     }
 }
 
-impl From<IOError> for FileReaderError {
+impl std::convert::From<IOError> for FileReaderError {
     fn from(_: IOError) -> Self {
         FileReaderError::UnexpectedEOF
     }
