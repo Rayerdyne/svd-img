@@ -37,7 +37,6 @@ pub fn encode(input: &str, output: &str, options: EncodeOptions)
     let xx = img.into_rgba8();
 
     let matrix = image_matrix(xx);
-    println!("matrix: {}", matrix);
 
     let f = match File::create(output) {
         Ok(file) => file,
@@ -50,16 +49,12 @@ pub fn encode(input: &str, output: &str, options: EncodeOptions)
         let vectors: SVDVectors<f64> = matrix_reduce_f64(&matrix, options)?;
         write_vectors_header(&mut fw, &vectors, true)?;
         write_vectors_f64(&mut fw, &vectors)?;
-        let x = super::decode::recompute_matrix_f64(&vectors)?;
-        println!("recomposed f64: {}", x);
     }
     else {
         let vectors: SVDVectors<f32> = matrix_reduce_f32(&matrix, options)?;
         
         write_vectors_header(&mut fw, &vectors, false)?;
         write_vectors_f32(&mut fw, &vectors)?;
-        let x = super::decode::recompute_matrix_f32(&vectors)?;
-        println!("recomposed f32: {}", x);
     }
 
     Ok(())
