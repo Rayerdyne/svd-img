@@ -4,6 +4,8 @@
 
 | Type | Name   | Description |
 |------|--------|-------------|
+| u8   | type   | The type of content of the file. 1st LSB: wether or not we use `f32` variables, 2nd LSB: wether or not this is an audio file (thus, an audio header is present) |
+| \[u8; 16]? | a_h | If audio file, the WAV audio header that has to be losslessly preserved |
 | u32  | n      | Number of triplets `sv_i`, `u_i`, `v_t_i` stored in that file |
 | u32  | height | The number of rows of the matrix, that is twice the height of the image |
 | u32  | width  | The number of columns of the matirx, that is twice the width of the image |

@@ -2,6 +2,7 @@ mod read;
 mod write;
 mod encode;
 mod decode;
+mod test;
 
 extern crate clap;
 use clap::{Arg, App};
@@ -39,7 +40,10 @@ fn app_args() -> clap::ArgMatches<'static> {
     App::new("svd-img")
         .version("0.1.0")
         .author("François Straet")
-        .about("Compress images using SVD")
+        .about("Compress images and WAV files using SVD")
+        .before_help("The input type (image or WAV file) is deduced from its \
+                      extention: \".WAV\" or \".wav\" files are considered as \
+                      sounds, otherwise as an image file.")
         .arg(Arg::with_name("input")
             .help("Sets the input image file name")
             .required(true)
@@ -90,7 +94,11 @@ SVD, 0 for iterating until convergence")
             .short("i")
             .long("n-iter")
             .takes_value(true))
-
+        .arg(Arg::with_name("wav-input")
+            .help("Consider the input as WAV file, independently of the file \
+                   extention.")
+            .short("W")
+            .long("wav-input"))
         .get_matches()
 }
 
@@ -122,6 +130,7 @@ fn main() -> Result<(), Error> {
             return Ok(());
         }
     };
+    options.force_wav = matches.is_present("wav-input");
     options.policy = match matches.value_of("num-vectors") {
         Some(n_str) => match n_str.parse::<usize>() {
             Ok(n) => CompressionPolicy::with_number(n),

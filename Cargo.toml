@@ -10,3 +10,4 @@ edition = "2018"
 nalgebra = {version = "0.19.0", path = "../nalgebra"}
 clap = "2.33.0"
 image = "0.23"
+wav = "0.4.1"
