@@ -44,7 +44,7 @@ fn app_args() -> clap::ArgMatches<'static> {
                       extention: \".WAV\" or \".wav\" files are considered as \
                       sounds, otherwise as an image file.")
         .arg(Arg::with_name("input")
-            .help("Sets the input image file name")
+            .help("Sets the input file name")
             .required(true)
             .index(1))
         .arg(Arg::with_name("output")
@@ -129,7 +129,7 @@ fn main() -> Result<(), Error> {
             return Ok(());
         }
     };
-    options.force_wav = matches.is_present("wav-input");
+    options.is_wav = matches.is_present("wav-input");
     options.policy = match matches.value_of("num-vectors") {
         Some(n_str) => match n_str.parse::<usize>() {
             Ok(n) => CompressionPolicy::with_number(n),
@@ -162,7 +162,7 @@ fn main() -> Result<(), Error> {
     };
 
     if action_type == ENCODE {
-        match encode(input, output, options) {
+        match encode(input, output, &mut options) {
             Err(e) => println!("Could not encode {}: {:?}.", input, e),
             Ok(_) => {}
         }

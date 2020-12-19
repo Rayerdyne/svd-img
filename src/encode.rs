@@ -28,7 +28,8 @@ pub struct EncodeOptions {
     pub use_f64: bool,
     pub eps: f32,
     pub n_iter: usize,
-    pub force_wav: bool
+    pub is_wav: bool, 
+    pub bits_per_sample: Option<u16>
 }
 
 pub enum CompressionPolicy {
@@ -38,14 +39,13 @@ pub enum CompressionPolicy {
 
 /// Encodes image file in `input` to vector file `output`, with given 
 /// `options`.
-pub fn encode(input: &str, output: &str, options: EncodeOptions) 
+pub fn encode(input: &str, output: &str, options: &mut EncodeOptions) 
     -> Result<(), Error> {
 
-    let is_sound = options.force_wav       || 
-                   input.ends_with(".WAV") ||
-                   input.ends_with(".wav");
+    options.is_wav |= input.ends_with(".WAV") ||
+                      input.ends_with(".wav");
 
-    let (matrix, header) = if is_sound {
+    let (matrix, header) = if options.is_wav {
         let img = read_image_file(input)?;
         let xx = img.into_rgba8();
 
@@ -53,6 +53,7 @@ pub fn encode(input: &str, output: &str, options: EncodeOptions)
     } else {
         let mut in_file = File::open(Path::new(input))?;
         let (header_small, sound_data) = wav::read(&mut in_file)?;
+        options.bits_per_sample = Some(header_small.bits_per_sample);
         let n = match &sound_data {
             WavData::Eight(x) => x.len(),
             WavData::Sixteen(x) => x.len(),
@@ -137,7 +138,7 @@ fn matrix_from_sound_data<T>(data: &[T]) -> DMatrix<i32>
     })
 }
 
-fn matrix_reduce_f64<T>(matrix: &DMatrix<T>, options: EncodeOptions)
+fn matrix_reduce_f64<T>(matrix: &DMatrix<T>, options: &EncodeOptions)
     -> Result<SVDVectors<f64>, Error>
     where T: Scalar + Into<f64> + Copy
     {
@@ -176,7 +177,7 @@ fn matrix_reduce_f64<T>(matrix: &DMatrix<T>, options: EncodeOptions)
     Ok(res)
 }
 
-fn matrix_reduce_f32(matrix: &DMatrix<i32>, options: EncodeOptions)
+fn matrix_reduce_f32(matrix: &DMatrix<i32>, options: &EncodeOptions)
     -> Result<SVDVectors<f32>, Error>
     {
     
@@ -296,11 +297,18 @@ impl EncodeOptions {
             policy: CompressionPolicy::with_ratio_percentage(25),
             use_f64: true,
             n_iter: 0, 
-            force_wav: false
+            is_wav: false,
+            bits_per_sample: None
         }
     }
 
     fn n_with(&self, h: usize, w: usize) -> Result<usize, Error> {
+        let file_size = if self.is_wav {
+            // not exactly but it will be fine
+            self.bits_per_sample.unwrap() as f64 * w as f64 * h as f64
+        } else {
+            w as f64 * h as f64
+        };
         match self.policy {
             CompressionPolicy::Number(n) => {
                 if n <= 0 {  return Err(Error::NTooSmall);  }
@@ -311,10 +319,9 @@ impl EncodeOptions {
                                 else            {  4_f64  };
                 let r_f64 = r as f64 / 100_f64;
 
-                let img_size = h as f64 * w as f64;
                 let vector_size = data_bits * (1_f64 + h as f64 + w as f64);
                 // n * vector_size = r_f64 * img_size
-                let n = (r_f64 * img_size) / vector_size;
+                let n = (r_f64 * file_size) / vector_size;
                 if n.round() <= 0.0 {  return Err(Error::RatioTooRestrictive);  }
                 Ok(n.round() as usize)
             }
