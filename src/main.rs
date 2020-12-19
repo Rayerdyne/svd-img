@@ -2,7 +2,6 @@ mod read;
 mod write;
 mod encode;
 mod decode;
-mod test;
 
 extern crate clap;
 use clap::{Arg, App};
