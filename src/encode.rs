@@ -52,9 +52,15 @@ pub fn encode(input: &str, output: &str, options: EncodeOptions)
         (image_matrix(xx), None)
     } else {
         let mut in_file = File::open(Path::new(input))?;
-        let (header, sound_data) = wav::read(&mut in_file)?;
+        let (header_small, sound_data) = wav::read(&mut in_file)?;
+        let n = match &sound_data {
+            WavData::Eight(x) => x.len(),
+            WavData::Sixteen(x) => x.len(),
+            WavData::TwentyFour(x) => x.len(),
+            _ => 0,
+        };
 
-        (sound_matrix(sound_data).unwrap(), Some(header))
+        (sound_matrix(&sound_data).unwrap(), Some((header_small, n as u32)))
     };
 
     let f = match File::create(output) {
@@ -106,7 +112,7 @@ fn image_matrix(img: RgbaImage) -> DMatrix<i32> {
     a
 }
 
-fn sound_matrix(data: WavData) -> Option<DMatrix<i32>>
+fn sound_matrix(data: &WavData) -> Option<DMatrix<i32>>
     {
 
     match data {
@@ -126,9 +132,8 @@ fn matrix_from_sound_data<T>(data: &[T]) -> DMatrix<i32>
     let cols = (n as f64 / rows as f64).ceil() as usize;
 
     DMatrix::from_fn(rows, cols, |i, j| {
-        if i * rows + j < n {
-            data[i * rows + j].into()
-        } else { 0_i32 }
+        
+        data[i * rows + j].into()
     })
 }
 
@@ -212,7 +217,7 @@ fn matrix_reduce_f32(matrix: &DMatrix<i32>, options: EncodeOptions)
 }
 
 fn write_vectors_header<T>(fw: &mut FileWriter, vectors: &SVDVectors<T>,
-    use_f64: bool, header: Option<WavHeader>) -> Result<(), Error> 
+    use_f64: bool, header: Option<(WavHeader, u32)>) -> Result<(), Error> 
     where T: std::fmt::Debug + nalgebra::Scalar
     {
     let n = vectors.len();
@@ -223,11 +228,13 @@ fn write_vectors_header<T>(fw: &mut FileWriter, vectors: &SVDVectors<T>,
     if use_f64 { fw.write_u8(1 + audio_header_present)?; }
     else       { fw.write_u8(0 + audio_header_present)?; }
     if audio_header_present != 0 {
-        let x: [u8; 16] = header.unwrap().into();
-        for i in 0..16 {
-            fw.write_u8(x[i])?;
-        }
+        let h = header.unwrap();
+        let x: [u8; 16] = h.0.into();
+        fw.write_all(&x)?;
+        let y: [u8; 4] = h.1.to_le_bytes();
+        fw.write_all(&y)?;
     }
+
     fw.write_u32(n as u32)?;
     fw.write_u32(height as u32)?;
     fw.write_u32(width as u32)?;

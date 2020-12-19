@@ -23,6 +23,13 @@ impl FileWriter {
         Ok(())
     }
 
+    pub fn write_all(&mut self, x: &[u8]) -> Result<(), IOError> {
+        for i in 0..x.len() {
+            self.write_u8(x[i])?;
+        }
+        Ok(())
+    }
+
     pub fn write_u16(&mut self, x: u16) -> Result<(), IOError> {
         self.file.write_all(&x.to_be_bytes())?;
         Ok(())
