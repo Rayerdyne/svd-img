@@ -61,6 +61,8 @@ svd-img compressed-thing.svd more-compressed-thing.svd -r -n 3
 | `--double-precision` | `-8` | Use double precision floating point values in the computations. |
 | `--version` | `-V`    | Prints version information (quite useless cuz it will remain 0.1). |
 | `--wav-input` | `-W`  | Consider the input file as a WAV file, whatever its name. |
+| `--no-aggregate` | `-s` | Disable the aggregation of pixels components (r, g, b, a?) into one single `i32` value. |
+| `--with-alpha` | `-a` | Adds an alpha channel to the compressed image |
 
 ## Options
 | Long name   | Short | Description |
