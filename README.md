@@ -35,6 +35,7 @@ svd-img image.png compressed-image.isvd -n 1
 Compress a WAV file using default compression (25%):
 ```
 svd-img sound.wav compressed-sound.wsvd
+svd-img sound.strange compressed-sound.wsvd -W
 ```
 
 Decode a compressed file containig an image, and a sound:
@@ -52,22 +53,22 @@ svd-img compressed-thing.svd more-compressed-thing.svd -r -n 3
 ## Flags
 | Long name   | Short | Description |
 | ----------- | ----- | ----------- |
-| `--help`    | `-h`    | Prints the help |
-| `--encode`  | `-e`    | Sets the mode to encode. Clashes with `-d` and `-r`|
-| `--decode`  | `-d`    | Sets the mode to decode. Clashes with `-e` and `-r`|
-| `--reduce`  | `-r`    | Sets the mode to reduce. Clashes with `-e` and `-d`|
-| `--simple-precision` | `-4` | Use simple precision floating point values in the computations |
-| `--double-precision` | `-8` | Use double precision floating point values in the computations |
-| `--version` | `-V`    | Prints version information (quite useless cuz it will remain 0.1) |
-| `--wav-input` | `-W`  | Consider the input file as a WAV file, whatever its name |
+| `--help`    | `-h`    | Prints the help. |
+| `--encode`  | `-e`    | Sets the mode to encode. Clashes with `-d` and `-r`. |
+| `--decode`  | `-d`    | Sets the mode to decode. Clashes with `-e` and `-r`. |
+| `--reduce`  | `-r`    | Sets the mode to reduce. Clashes with `-e` and `-d`. |
+| `--simple-precision` | `-4` | Use simple precision floating point values in the computations. |
+| `--double-precision` | `-8` | Use double precision floating point values in the computations. |
+| `--version` | `-V`    | Prints version information (quite useless cuz it will remain 0.1). |
+| `--wav-input` | `-W`  | Consider the input file as a WAV file, whatever its name. |
 
 ## Options
 | Long name   | Short | Description |
 | ---------   | ----- | ----------- |
-| `--compression-%` | `-p` | Sets the compression ratio, in percentage. Clashes with `-n` |
-| `--num-vectors` | `-n` | Sets the number of vectors to store in the compressed file. Clashes with `-p` |
-| `--epsilon` | `-E`  | Sets the epsilon used for the computation of the SVD. That is, the value used to determine if a value converged to 0 |
-| `--n-iter`  | `-i`  | Sets the maximum number of iteration allowed for the computation of the SVD |
+| `--compression-%` | `-p` | Sets the compression ratio, in percentage. Clashes with `-n`. |
+| `--num-vectors` | `-n` | Sets the number of vectors to store in the compressed file. Clashes with `-p`. |
+| `--epsilon` | `-E`  | Sets the epsilon used for the computation of the SVD. That is, the value used to determine if a value converged to 0. |
+| `--n-iter`  | `-i`  | Sets the maximum number of iteration allowed for the computation of the SVD. |
 
 
 
