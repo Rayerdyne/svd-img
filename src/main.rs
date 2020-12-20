@@ -44,7 +44,7 @@ pub enum Error {
     ImageReadError,
     ImageFormatError,
     SVDError, NoSVDResult, 
-    NTooSmall, RatioTooRestrictive
+    NTooSmall, RatioTooRestrictive, NotEnoughVectorsInSource
 }
 
 impl std::convert::From<IOError> for Error {

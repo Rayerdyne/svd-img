@@ -262,6 +262,9 @@ fn remove_vectors<T>(vectors: &mut SVDVectors<T>, options: &Options)
     let h = vectors.len();
     let w = vectors[0].1.len() * vectors[0].2.len();
     let n2 = options.n_with(w, h)?;
+    if n2 > h {
+        return Err(Error::NotEnoughVectorsInSource)
+    }
 
     vectors.truncate(n2);
     Ok(())
