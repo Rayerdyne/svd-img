@@ -132,6 +132,16 @@ SVD, 0 for iterating until convergence")
                    extention.")
             .short("W")
             .long("wav-input"))
+        .arg(Arg::with_name("with-alpha")
+            .help("Adds an alpha channel to the compressed image")
+            .short("a")
+            .long("with-alpha"))
+        .arg(Arg::with_name("no-aggregate")
+            .help("Disables the aggregation of pixels values into one greater \
+                   number. That is, a pixel will be spread into 4 values \
+                   (even without an alpha channel).")
+            .short("s")
+            .long("no-aggregate"))
         .get_matches()
 }
 
@@ -169,6 +179,9 @@ fn main() -> Result<(), Error> {
     options.is_wav = matches.is_present("wav-input");
     options.is_reduce = matches.is_present("mode-reduce");
     
+    options.with_alpha = matches.is_present("with-alpha");
+    options.use_aggregate = !matches.is_present("no-aggregate");
+
     options.policy = match matches.value_of("num-vectors") {
         Some(n_str) => match n_str.parse::<usize>() {
             Ok(n) => CompressionPolicy::with_number(n),

@@ -67,8 +67,8 @@ svd-img compressed-thing.svd more-compressed-thing.svd -r -n 3
 | ---------   | ----- | ----------- |
 | `--compression-%` | `-p` | Sets the compression ratio, in percentage. Clashes with `-n`. |
 | `--num-vectors` | `-n` | Sets the number of vectors to store in the compressed file. Clashes with `-p`. |
-| `--epsilon` | `-E`  | Sets the epsilon used for the computation of the SVD. That is, the value used to determine if a value converged to 0. |
-| `--n-iter`  | `-i`  | Sets the maximum number of iteration allowed for the computation of the SVD. |
+| `--epsilon` | `-E`  | Sets the epsilon used for the computation of the SVD. That is, the value used to determine if a value converged to 0. Default is 1e-5. |
+| `--n-iter`  | `-i`  | Sets the maximum number of iteration allowed for the computation of the SVD. Default is 0 (what means until convergence) |
 
 
 

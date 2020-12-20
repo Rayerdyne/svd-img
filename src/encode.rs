@@ -11,7 +11,7 @@ use std::{
 use image::{
     io::Reader as ImageReader,
     DynamicImage,
-    RgbaImage
+    RgbImage, RgbaImage
 };
 
 use wav::{
@@ -28,6 +28,9 @@ pub struct Options {
     pub use_f64: bool,
     pub eps: f32,
     pub n_iter: usize,
+
+    pub use_aggregate: bool,
+    pub with_alpha: bool,
 
     pub is_wav: bool, 
     pub is_reduce: bool,
@@ -49,9 +52,14 @@ pub fn encode(input: &str, output: &str, options: &mut Options)
 
     let (matrix, header) = if !options.is_wav {
         let img = read_image_file(input)?;
-        let xx = img.into_rgba8();
+        if options.with_alpha {
+            (image_matrix_rgba(img.into_rgba8(), !options.use_aggregate), None)
+        } else {
+            (image_matrix_rgb(img.into_rgb8(), !options.use_aggregate), None)
+        }
+        // let xx = img.into_rgba8();
 
-        (image_matrix(xx), None)
+        // (image_matrix(xx), None)
     } else {
         let mut in_file = File::open(Path::new(input))?;
         let (header_small, sound_data) = wav::read(&mut in_file)?;
@@ -70,12 +78,12 @@ pub fn encode(input: &str, output: &str, options: &mut Options)
 
     if options.use_f64 {
         let vectors: SVDVectors<f64> = matrix_reduce_f64(&matrix, options)?;
-        write_vectors_header(&mut fw, &vectors, true, header)?;
+        write_vectors_header(&mut fw, &vectors, &options, header)?;
         write_vectors_f64(&mut fw, &vectors)?;
     }
     else {
         let vectors: SVDVectors<f32> = matrix_reduce_f32(&matrix, options)?;
-        write_vectors_header(&mut fw, &vectors, false, header)?;
+        write_vectors_header(&mut fw, &vectors, &options, header)?;
         write_vectors_f32(&mut fw, &vectors)?;
     }
 
@@ -92,22 +100,57 @@ pub fn read_image_file(name: &str) -> Result<DynamicImage, Error> {
     }
 }
 
-/// Returns a DMatrix<u8> containing the data of the Rgba image.
-fn image_matrix(img: RgbaImage) -> DMatrix<i32> {
+/// Returns a DMatrix<i32> containing the data of the Rgba image.
+fn image_matrix_rgba(img: RgbaImage, aggregate: bool) -> DMatrix<i32> {
     let dim = img.dimensions();
-    let mut a = DMatrix::<i32>::zeros(2 * dim.0 as usize, 2 * dim.1 as usize);
 
-    for i in 0..(dim.0 as usize) {
-        for j in 0..(dim.1 as usize) {
+    if aggregate {
+        DMatrix::from_fn(dim.0 as usize, dim.1 as usize, |i, j| {
             let pixel = img[(i as u32, j as u32)];
-            a[(2*i,   2*j  )] = pixel[0] as i32;
-            a[(2*i+1, 2*j  )] = pixel[1] as i32;
-            a[(2*i,   2*j+1)] = pixel[2] as i32;
-            a[(2*i+1, 2*j+1)] = pixel[3] as i32;
+            (pixel[0] as i32) << 24_i32 + 
+            (pixel[1] as i32) << 16_i32 +
+            (pixel[2] as i32) << 8_i32  +
+            pixel[3] as i32
+        })
+    } else {
+        let mut a = DMatrix::<i32>::zeros(dim.0 as usize, dim.1 as usize);
+        for i in 0..(dim.0 as usize) {
+            for j in 0..(dim.1 as usize) {
+                let pixel = img[(i as u32, j as u32)];
+                a[(2*i,   2*j  )] = pixel[0] as i32;
+                a[(2*i+1, 2*j  )] = pixel[1] as i32;
+                a[(2*i,   2*j+1)] = pixel[2] as i32;
+                a[(2*i+1, 2*j+1)] = pixel[3] as i32;
+            }
         }
+        a
     }
+}
 
-    a
+/// Returns a DMatrix<i32> containing the data of the Rgb image.
+fn image_matrix_rgb(img: RgbImage, aggregate: bool) -> DMatrix<i32> {
+    let dim = img.dimensions();
+
+    if aggregate {
+        DMatrix::from_fn(dim.0 as usize, dim.1 as usize, |i, j| {
+            let pixel = img[(i as u32, j as u32)];
+            (pixel[0] as i32) << 16_i32 + 
+            (pixel[1] as i32) << 8_i32 +
+            pixel[2] as i32
+        })
+    } else {
+        let mut a = DMatrix::<i32>::zeros(dim.0 as usize, dim.1 as usize);
+        for i in 0..(dim.0 as usize) {
+            for j in 0..(dim.1 as usize) {
+                let pixel = img[(i as u32, j as u32)];
+                a[(2*i,   2*j  )] = pixel[0] as i32;
+                a[(2*i+1, 2*j  )] = pixel[1] as i32;
+                a[(2*i,   2*j+1)] = pixel[2] as i32;
+                a[(2*i+1, 2*j+1)] = 0xff_i32;
+            }
+        }
+        a
+    }
 }
 
 fn sound_matrix(data: &WavData) -> Option<DMatrix<i32>>
@@ -216,18 +259,20 @@ fn matrix_reduce_f32(matrix: &DMatrix<i32>, options: &Options)
 }
 
 pub(crate) fn write_vectors_header<T>(fw: &mut FileWriter, vectors: &SVDVectors<T>,
-    use_f64: bool, header: Option<(WavHeader, u32)>) -> Result<(), Error> 
+    options: &Options, header: Option<(WavHeader, u32)>) -> Result<(), Error> 
     where T: std::fmt::Debug + nalgebra::Scalar
     {
     let n = vectors.len();
     let height = vectors[0].1.nrows();
     let width = vectors[0].2.nrows();
 
-    let audio_header_present = if let Some(_) = header { 2 } else { 0 };
-    if use_f64 { fw.write_u8(1 + audio_header_present)?; }
-    else       { fw.write_u8(0 + audio_header_present)?; }
+    let file_type = if options.is_wav        { 0x8 } else { 0x0 } |
+                    if options.use_f64       { 0x4 } else { 0x0 } |
+                    if options.with_alpha    { 0x2 } else { 0x0 } |
+                    if options.use_aggregate { 0x1 } else { 0x0 };
+    fw.write_u8(file_type)?;
 
-    if audio_header_present != 0 {
+    if options.is_wav {
         let h = header.unwrap();
         let x: [u8; 16] = h.0.into();
         fw.write_all(&x)?;
@@ -294,7 +339,11 @@ impl Options {
             eps: 1.0e-5,
             policy: CompressionPolicy::with_ratio_percentage(25),
             use_f64: true,
-            n_iter: 0, 
+            n_iter: 0,
+
+            use_aggregate: true,
+            with_alpha: false,
+
             is_wav: false,
             bits_per_sample: None,
             is_reduce: false
@@ -309,7 +358,8 @@ impl Options {
             let f = if self.use_f64 { 8 } else { 4 };
             (f * h * w) as f64
         } else {
-            w as f64 * h as f64
+            let s = w as f64 * h as f64;
+            if self.use_aggregate { s / 4_f64 } else { s }
         };
 
         match self.policy {

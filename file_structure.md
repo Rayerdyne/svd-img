@@ -6,7 +6,7 @@ I suggest to use `.isvd` for compressed files containing image and `.wsvd` for c
 
 | Type to read | Name   | Description |
 | ------------ | ------ | ----------- |
-| `u8`         | `type` | The type of content of the file. 1st LSB: wether or not we use `f32` variables, 2nd LSB: wether or not this is an audio file (thus, an audio header is present) |
+| `u8`         | `type` | The type of content of the file.  4th LSB: wether or not this is an audio file (thus, an audio header is present), 3rd LSB: wether or not we use `f32` variables, 2nd LSB: wether or not there is an alpha channel in the image, 1st LSB: wether or not the matrix has been constructed with aggregation |
 | `[u8; 20]?` | `a_h` | If audio file (thus optionnal), the WAV audio header that has to be losslessly preserved |
 | `u32`  | `n`      | Number of triplets `sv_i`, `u_i`, `v_t_i` stored in that file |
 | `u32`  | `height` | The number of rows of the matrix, that is twice the height of the image |
