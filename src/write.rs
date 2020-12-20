@@ -3,7 +3,8 @@ use std::{
     io::{
         prelude::Write,
         Error as IOError,
-    }
+    },
+    path::Path
 };
 
 pub struct FileWriter {
@@ -17,6 +18,17 @@ impl FileWriter {
             file: f
         }
     }    
+
+    pub fn from_path(path: &Path) -> Result<Self, IOError> {
+        let file = File::create(path)?;
+        Ok(Self {
+            file: file
+        })
+    }
+
+    pub fn from_name(name: &str) -> Result<Self, IOError> {
+        Self::from_path(Path::new(name))
+    }
 
     pub fn write_u8(&mut self, x: u8) -> Result<(), IOError> {
         self.file.write_all(&x.to_be_bytes())?;

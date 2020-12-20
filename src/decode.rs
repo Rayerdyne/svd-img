@@ -1,6 +1,14 @@
 use super::{
     Error,
-    read::FileReader
+    read::FileReader,
+    write::FileWriter,
+    encode::{
+        Options,
+        SVDVectors,
+        write_vectors_header,
+        write_vectors_f32,
+        write_vectors_f64,
+    }
 };
 
 use std::{
@@ -8,7 +16,7 @@ use std::{
     fs::File
 };
 
-use nalgebra::{ DMatrix, DVector };
+use nalgebra::{ DMatrix, DVector, Scalar };
 
 use image::{ RgbaImage, ImageBuffer, Rgba };
 
@@ -17,24 +25,9 @@ use wav::{
     Header as WavHeader
 };
 
-type SVDVectors<T> = Vec<(T, DVector<T>, DVector<T>)>;
-
 pub fn decode(input: &str, output: &str) -> Result<(), Error> {
-    let f = File::open(input)?;
-    let mut fr = FileReader::new(f);
-    let content_type = fr.read_u8()?;
-    let is_sound = if content_type & 2 != 0 { true } else { false };
-    let use_f64 = if content_type & 1 != 0 { true } else { false };
 
-    let header: Option<(WavHeader, u32)> = if is_sound {
-        let mut header_raw = [0_u8; 16];
-        for i in 0..16 {
-            header_raw[i] = fr.read_u8()?;
-        }
-        let n = fr.read_u32()?;
-        Some((header_raw.into(), n))
-    } else { None };
-
+    let (is_sound, use_f64, header, mut fr) = read_file_header(input)?;
 
     let matrix = if use_f64 {
         let vectors = read_file_f64(&mut fr)?;
@@ -57,6 +50,52 @@ pub fn decode(input: &str, output: &str) -> Result<(), Error> {
     }
 
     Ok(())
+}
+
+pub fn reduce(input: &str, output: &str, options: &Options) 
+    -> Result<(), Error> {
+
+    let (_is_sound, use_f64, header, mut fr) = read_file_header(input)?;
+
+    let mut fw = FileWriter::from_name(output)?;
+
+    if use_f64 {
+        let mut vectors = read_file_f64(&mut fr)?;
+        remove_vectors(&mut vectors, options)?;
+
+        write_vectors_header(&mut fw, &vectors, true, header)?;
+        write_vectors_f64(&mut fw, &vectors)?;
+    }
+    else {
+        let mut vectors = read_file_f32(&mut fr)?;
+        remove_vectors(&mut vectors, options)?;
+
+        write_vectors_header(&mut fw, &vectors, false, header)?;
+        write_vectors_f32(&mut fw, &vectors)?;
+    }
+    
+    Ok(())
+}
+
+fn read_file_header(input: &str) 
+    -> Result<(bool, bool, Option<(WavHeader, u32)>, FileReader), Error> {
+
+    let f = File::open(input)?;
+    let mut fr = FileReader::new(f);
+    let content_type = fr.read_u8()?;
+    let is_sound = if content_type & 2 != 0 { true } else { false };
+    let use_f64 = if content_type & 1 != 0 { true } else { false };
+
+    let header: Option<(WavHeader, u32)> = if is_sound {
+        let mut header_raw = [0_u8; 16];
+        for i in 0..16 {
+            header_raw[i] = fr.read_u8()?;
+        }
+        let n = fr.read_u32()?;
+        Some((header_raw.into(), n))
+    } else { None };
+
+    Ok((is_sound, use_f64, header, fr))
 }
 
 fn read_file_f64(fr: &mut FileReader) -> Result<SVDVectors<f64>, Error> {
@@ -214,4 +253,16 @@ fn sound_from_matrix(matrix: &DMatrix<i32>, header: (WavHeader, u32))
         },
         _ => WavData::Empty
     }
+}
+
+fn remove_vectors<T>(vectors: &mut SVDVectors<T>, options: &Options) 
+    -> Result<(), Error>
+    where T: Scalar {
+    
+    let h = vectors.len();
+    let w = vectors[0].1.len() * vectors[0].2.len();
+    let n2 = options.n_with(w, h)?;
+
+    vectors.truncate(n2);
+    Ok(())
 }

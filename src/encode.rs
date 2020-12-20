@@ -21,14 +21,16 @@ use wav::{
 
 use nalgebra::{ DMatrix, DVector, Scalar };
 
-type SVDVectors<T> = Vec<(T, DVector<T>, DVector<T>)>;
+pub type SVDVectors<T> = Vec<(T, DVector<T>, DVector<T>)>;
 
-pub struct EncodeOptions {
+pub struct Options {
     pub policy: CompressionPolicy,
     pub use_f64: bool,
     pub eps: f32,
     pub n_iter: usize,
+
     pub is_wav: bool, 
+    pub is_reduce: bool,
     pub bits_per_sample: Option<u16>
 }
 
@@ -39,7 +41,7 @@ pub enum CompressionPolicy {
 
 /// Encodes image file in `input` to vector file `output`, with given 
 /// `options`.
-pub fn encode(input: &str, output: &str, options: &mut EncodeOptions) 
+pub fn encode(input: &str, output: &str, options: &mut Options) 
     -> Result<(), Error> {
 
     options.is_wav |= input.ends_with(".WAV") ||
@@ -64,12 +66,7 @@ pub fn encode(input: &str, output: &str, options: &mut EncodeOptions)
         (sound_matrix(&sound_data).unwrap(), Some((header_small, n as u32)))
     };
 
-    let f = match File::create(output) {
-        Ok(file) => file,
-        Err(e) => return Err(Error::FileWriteError(e))
-    };
-
-    let mut fw = FileWriter::new(f);
+    let mut fw = FileWriter::from_name(output)?;
 
     if options.use_f64 {
         let vectors: SVDVectors<f64> = matrix_reduce_f64(&matrix, options)?;
@@ -141,7 +138,7 @@ fn matrix_from_sound_data<T>(data: &[T]) -> DMatrix<i32>
     })
 }
 
-fn matrix_reduce_f64<T>(matrix: &DMatrix<T>, options: &EncodeOptions)
+fn matrix_reduce_f64<T>(matrix: &DMatrix<T>, options: &Options)
     -> Result<SVDVectors<f64>, Error>
     where T: Scalar + Into<f64> + Copy
     {
@@ -180,7 +177,7 @@ fn matrix_reduce_f64<T>(matrix: &DMatrix<T>, options: &EncodeOptions)
     Ok(res)
 }
 
-fn matrix_reduce_f32(matrix: &DMatrix<i32>, options: &EncodeOptions)
+fn matrix_reduce_f32(matrix: &DMatrix<i32>, options: &Options)
     -> Result<SVDVectors<f32>, Error>
     {
     
@@ -220,7 +217,7 @@ fn matrix_reduce_f32(matrix: &DMatrix<i32>, options: &EncodeOptions)
     Ok(res)
 }
 
-fn write_vectors_header<T>(fw: &mut FileWriter, vectors: &SVDVectors<T>,
+pub(crate) fn write_vectors_header<T>(fw: &mut FileWriter, vectors: &SVDVectors<T>,
     use_f64: bool, header: Option<(WavHeader, u32)>) -> Result<(), Error> 
     where T: std::fmt::Debug + nalgebra::Scalar
     {
@@ -231,6 +228,7 @@ fn write_vectors_header<T>(fw: &mut FileWriter, vectors: &SVDVectors<T>,
     let audio_header_present = if let Some(_) = header { 2 } else { 0 };
     if use_f64 { fw.write_u8(1 + audio_header_present)?; }
     else       { fw.write_u8(0 + audio_header_present)?; }
+
     if audio_header_present != 0 {
         let h = header.unwrap();
         let x: [u8; 16] = h.0.into();
@@ -245,7 +243,7 @@ fn write_vectors_header<T>(fw: &mut FileWriter, vectors: &SVDVectors<T>,
     Ok(())
 }
 
-fn write_vectors_f64(fw: &mut FileWriter, vectors: &SVDVectors<f64>)
+pub(crate) fn write_vectors_f64(fw: &mut FileWriter, vectors: &SVDVectors<f64>)
     -> Result<(), Error> {
 
     let n = vectors.len();
@@ -264,7 +262,7 @@ fn write_vectors_f64(fw: &mut FileWriter, vectors: &SVDVectors<f64>)
     Ok(())
 }
 
-fn write_vectors_f32(fw: &mut FileWriter, vectors: &SVDVectors<f32>)
+pub(crate) fn write_vectors_f32(fw: &mut FileWriter, vectors: &SVDVectors<f32>)
     -> Result<(), Error> {
 
     let n = vectors.len();
@@ -292,26 +290,30 @@ impl CompressionPolicy {
     }
 }
 
-impl EncodeOptions {
+impl Options {
     pub fn default() -> Self {
-        EncodeOptions {
+        Options {
             eps: 1.0e-5,
             policy: CompressionPolicy::with_ratio_percentage(25),
             use_f64: true,
             n_iter: 0, 
             is_wav: false,
-            bits_per_sample: None
+            bits_per_sample: None,
+            is_reduce: false
         }
     }
 
-    fn n_with(&self, h: usize, w: usize) -> Result<usize, Error> {
+    pub (crate) fn n_with(&self, h: usize, w: usize) -> Result<usize, Error> {
         let file_size = if self.is_wav {
             // not exactly but it will be fine
             self.bits_per_sample.unwrap() as f64 * w as f64 * h as f64 / 8.0
+        } else if self.is_reduce {
+            let f = if self.use_f64 { 8 } else { 4 };
+            (f * h * w) as f64
         } else {
             w as f64 * h as f64
         };
-        println!("Original file size: {}", file_size);
+
         match self.policy {
             CompressionPolicy::Number(n) => {
                 if n <= 0 {  return Err(Error::NTooSmall);  }

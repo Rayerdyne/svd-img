@@ -1,6 +1,7 @@
 use std::{
     io::{Read, Error as IOError},
     fs::File,
+    path::Path
 };
 
 pub struct FileReader {
@@ -18,6 +19,17 @@ impl FileReader {
         FileReader {
             file: f
         }
+    }
+
+    pub fn from_path(path: &Path) -> Result<Self, IOError> {
+        let file = File::open(path)?;
+        Ok(Self {
+            file: file
+        })
+    }
+
+    pub fn from_name(name: &str) -> Result<Self, IOError> {
+        Self::from_path(Path::new(name))
     }
 
     pub fn read_u8(&mut self) -> Result<u8, FileReaderError> {

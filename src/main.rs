@@ -5,13 +5,37 @@ mod decode;
 
 extern crate clap;
 use clap::{Arg, App};
-use encode::{encode, EncodeOptions, CompressionPolicy};
-use decode::decode;
+use encode::{encode, Options, CompressionPolicy};
+use decode::{decode, reduce};
 
 use std::io::Error as IOError;
 
-const ENCODE: u8 = 1;
-const DECODE: u8 = 2;
+enum ActionTypes {
+    Encode, Decode, Reduce
+}
+
+impl std::cmp::PartialEq for ActionTypes {
+    fn eq(&self, other: &Self) -> bool {
+        match self {
+            ActionTypes::Decode => match other {
+                ActionTypes::Decode => true,
+                _ => false,
+            },
+            ActionTypes::Encode => match other {
+                ActionTypes::Encode => true,
+                _ => false,
+            },
+            ActionTypes::Reduce => match other {
+                ActionTypes::Reduce => true,
+                _ => false,
+            },
+        }
+    }
+
+    // fn ne(&self, other: &Self) -> bool {
+    //     !std::cmp::eq(other)
+    // }
+}
 
 #[derive(Debug)]
 pub enum Error {
@@ -40,11 +64,11 @@ fn app_args() -> clap::ArgMatches<'static> {
         .version("0.1.0")
         .author("François Straet")
         .about("Compress images and WAV files using SVD")
-        .before_help("The input type (image or WAV file) is deduced from its \
-                      extention: \".WAV\" or \".wav\" files are considered as \
-                      sounds, otherwise as an image file.")
         .arg(Arg::with_name("input")
-            .help("Sets the input file name")
+            .help("Sets the input file name. If no specific option are given, \
+                   the input type (image or WAV file) is deduced from its \
+                   extention: \".WAV\" or \".wav\" files are considered as \
+                   sounds, otherwise as an image file.")
             .required(true)
             .index(1))
         .arg(Arg::with_name("output")
@@ -60,14 +84,24 @@ fn app_args() -> clap::ArgMatches<'static> {
             .short("d")
             .long("decode")
             .conflicts_with("mode-encode"))
+        .arg(Arg::with_name("mode-reduce")
+            .help("Sets the mode to reduce (compress an already compressed \
+                   file even more)")
+            .short("r")
+            .long("reduce")
+            .conflicts_with("mode-encode")
+            .conflicts_with("mode-decode"))
         .arg(Arg::with_name("num-vectors")
-            .help("Sets the number of vectors to store in the compressed file.")
+            .help("Sets the number of vectors to store in the compressed file."
+                )
             .short("n")
+            .long("num-vectors")
             .takes_value(true))
-        .arg(Arg::with_name("compression-ratio")
+        .arg(Arg::with_name("compression-%")
             .help("Sets the compression ratio, in percentage, compared to the \
                    uncompressed RGBA image. (clashes with -n option).")
             .short("p")
+            .long("compression-%")
             .takes_value(true)
             .conflicts_with("num-vectors"))
         .arg(Arg::with_name("type-f32")
@@ -107,10 +141,13 @@ fn main() -> Result<(), Error> {
     let input = matches.value_of("input").unwrap();
     let output = matches.value_of("output").unwrap();
 
-    let action_type = if matches.is_present("mode-decode") { DECODE }
-                      else { ENCODE };
+    let action_type =   if matches.is_present("mode-decode") 
+                             { ActionTypes::Decode }
+                        else if matches.is_present("mode-reduce")
+                             { ActionTypes::Reduce }
+                        else { ActionTypes::Encode };
 
-    let mut options = EncodeOptions::default();
+    let mut options = Options::default();
     
     options.use_f64 = !matches.is_present("type-f32");
     options.eps = match matches.value_of("epsilon").unwrap_or("1.0e-5")
@@ -130,6 +167,8 @@ fn main() -> Result<(), Error> {
         }
     };
     options.is_wav = matches.is_present("wav-input");
+    options.is_reduce = matches.is_present("mode-reduce");
+    
     options.policy = match matches.value_of("num-vectors") {
         Some(n_str) => match n_str.parse::<usize>() {
             Ok(n) => CompressionPolicy::with_number(n),
@@ -138,7 +177,7 @@ fn main() -> Result<(), Error> {
                 return Ok(())
             }
         },
-        None => match matches.value_of("compression-ratio") {
+        None => match matches.value_of("compression-%") {
             Some(r_str) => match r_str.parse::<u8>() {
                 Ok(r) => {
                     if r > 100 {
@@ -153,7 +192,7 @@ fn main() -> Result<(), Error> {
                 }
             }
             None => {
-                if action_type == ENCODE {
+                if action_type == ActionTypes::Encode {
                     println!("Using default compression ratio (25%).");
                 }
                 CompressionPolicy::with_ratio_percentage(25)
@@ -161,18 +200,24 @@ fn main() -> Result<(), Error> {
         }
     };
 
-    if action_type == ENCODE {
-        match encode(input, output, &mut options) {
-            Err(e) => println!("Could not encode {}: {:?}.", input, e),
-            Ok(_) => {}
-        }
+    let result = if action_type == ActionTypes::Encode {
+        encode(input, output, &mut options)
     }
-    
-    else if action_type == DECODE {
-        match decode(input, output) {
-            Err(e) => println!("Could not decode {}: {:?}.", input, e),
-            Ok(_) => {}
-        }
+    else if action_type == ActionTypes::Decode {
+        decode(input, output)
+    }
+    else /* action_type == ActionTypes::Reduce */ {
+        reduce(input, output, &options)        
+    };
+
+    match result {
+        Err(e) => println!("Could not {}: {:?}",
+            match action_type {
+                ActionTypes::Encode => "encode",
+                ActionTypes::Decode => "decode",
+                ActionTypes::Reduce => "reduce",
+            }, e),
+        Ok(_) => {}
     }
 
     Ok(())
