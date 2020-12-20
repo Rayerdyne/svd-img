@@ -45,7 +45,7 @@ pub fn encode(input: &str, output: &str, options: &mut EncodeOptions)
     options.is_wav |= input.ends_with(".WAV") ||
                       input.ends_with(".wav");
 
-    let (matrix, header) = if options.is_wav {
+    let (matrix, header) = if !options.is_wav {
         let img = read_image_file(input)?;
         let xx = img.into_rgba8();
 
@@ -98,6 +98,7 @@ pub fn read_image_file(name: &str) -> Result<DynamicImage, Error> {
 /// Returns a DMatrix<u8> containing the data of the Rgba image.
 fn image_matrix(img: RgbaImage) -> DMatrix<i32> {
     let dim = img.dimensions();
+    println!("dimentions: {:?}", dim);
     let mut a = DMatrix::<i32>::zeros(2 * dim.0 as usize, 2 * dim.1 as usize);
 
     for i in 0..(dim.0 as usize) {
@@ -131,10 +132,12 @@ fn matrix_from_sound_data<T>(data: &[T]) -> DMatrix<i32>
     let n = data.len();
     let rows = (n as f64).sqrt().round() as usize;
     let cols = (n as f64 / rows as f64).ceil() as usize;
+    println!("Let's make a {} by {} matrix", rows, cols);
 
     DMatrix::from_fn(rows, cols, |i, j| {
-        
-        data[i * rows + j].into()
+        if i * rows + j < n {
+            data[i * rows + j].into()
+        } else { 0 }
     })
 }
 
@@ -232,8 +235,7 @@ fn write_vectors_header<T>(fw: &mut FileWriter, vectors: &SVDVectors<T>,
         let h = header.unwrap();
         let x: [u8; 16] = h.0.into();
         fw.write_all(&x)?;
-        let y: [u8; 4] = h.1.to_le_bytes();
-        fw.write_all(&y)?;
+        fw.write_u32(h.1)?;
     }
 
     fw.write_u32(n as u32)?;
@@ -305,10 +307,11 @@ impl EncodeOptions {
     fn n_with(&self, h: usize, w: usize) -> Result<usize, Error> {
         let file_size = if self.is_wav {
             // not exactly but it will be fine
-            self.bits_per_sample.unwrap() as f64 * w as f64 * h as f64
+            self.bits_per_sample.unwrap() as f64 * w as f64 * h as f64 / 8.0
         } else {
             w as f64 * h as f64
         };
+        println!("Original file size: {}", file_size);
         match self.policy {
             CompressionPolicy::Number(n) => {
                 if n <= 0 {  return Err(Error::NTooSmall);  }

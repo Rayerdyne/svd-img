@@ -61,7 +61,7 @@ pub fn decode(input: &str, output: &str) -> Result<(), Error> {
 
 fn read_file_f64(fr: &mut FileReader) -> Result<SVDVectors<f64>, Error> {
 
-    let (n, height, width) = read_file_header(fr)?;
+    let (n, height, width) = read_file_dimensions(fr)?;
 
     let mut res = Vec::with_capacity(n);
 
@@ -82,7 +82,7 @@ fn read_file_f64(fr: &mut FileReader) -> Result<SVDVectors<f64>, Error> {
 
 fn read_file_f32(fr: &mut FileReader) -> Result<SVDVectors<f32>, Error> {
 
-    let (n, height, width) = read_file_header(fr)?;
+    let (n, height, width) = read_file_dimensions(fr)?;
 
     let mut res = Vec::with_capacity(n);
 
@@ -101,7 +101,7 @@ fn read_file_f32(fr: &mut FileReader) -> Result<SVDVectors<f32>, Error> {
     Ok(res)
 }
 
-fn read_file_header(fr: &mut FileReader) -> Result<(usize, usize, usize), Error> {
+fn read_file_dimensions(fr: &mut FileReader) -> Result<(usize, usize, usize), Error> {
     let n = fr.read_u32()? as usize;
     let height = fr.read_u32()? as usize;
     let width  = fr.read_u32()? as usize;
@@ -203,7 +203,7 @@ fn sound_from_matrix(matrix: &DMatrix<i32>, header: (WavHeader, u32))
             WavData::Eight(v)
         },
         16 => {
-            let mut v = Vec::with_capacity(n as usize);
+            let mut v = vec![0; n as usize];
             for i in 0_usize..n as usize {
                 v[i] = x[i] as i16;
             }
