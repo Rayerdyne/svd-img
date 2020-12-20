@@ -95,7 +95,6 @@ pub fn read_image_file(name: &str) -> Result<DynamicImage, Error> {
 /// Returns a DMatrix<u8> containing the data of the Rgba image.
 fn image_matrix(img: RgbaImage) -> DMatrix<i32> {
     let dim = img.dimensions();
-    println!("dimentions: {:?}", dim);
     let mut a = DMatrix::<i32>::zeros(2 * dim.0 as usize, 2 * dim.1 as usize);
 
     for i in 0..(dim.0 as usize) {
@@ -129,7 +128,6 @@ fn matrix_from_sound_data<T>(data: &[T]) -> DMatrix<i32>
     let n = data.len();
     let rows = (n as f64).sqrt().round() as usize;
     let cols = (n as f64 / rows as f64).ceil() as usize;
-    println!("Let's make a {} by {} matrix", rows, cols);
 
     DMatrix::from_fn(rows, cols, |i, j| {
         if i * rows + j < n {
