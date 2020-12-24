@@ -31,11 +31,13 @@ pub fn decode(input: &str, output: &str) -> Result<(), Error> {
         read_file_header(input)?;
 
     let matrix = if use_f64 {
-        let vectors = read_file_f64(&mut fr)?;
+        let vectors: SVDVectors<f64> = read_file_f64(&mut fr)?;
+        // println!("{}", vectors.to_string());
         recompute_matrix_f64(&vectors)?
     }
     else {
         let vectors = read_file_f32(&mut fr)?;
+        // println!("{}", vectors.to_string());
         recompute_matrix_f32(&vectors)?
     };
 
@@ -216,28 +218,30 @@ pub fn recompute_matrix_f32(vectors: &SVDVectors<f32>)
 fn imgbuf_from_matrix_rgba(matrix: &DMatrix<i32>, aggregate: bool)
     -> Result<RgbaImage, Error> {
 
-    let (m_height, m_width) = matrix.shape();
-    let (height, width) = (m_height as u32/ 2, m_width as u32/ 2);
+    let (m_height0, m_width0) = matrix.shape();
+    let (m_height, m_width) = (m_height0 as u32, m_width0 as u32);
 
-    let mut imgbuf = ImageBuffer::new(height, width);
+    let mut imgbuf = if aggregate { ImageBuffer::new(m_height,     m_width) }
+                     else         { ImageBuffer::new(m_height / 2, m_width / 2) };
 
     if aggregate {
+        for (x, y, pixel) in imgbuf.enumerate_pixels_mut() {
+            // let (i, j) = (x as usize, y as usize);
+            // let elm = matrix[(i, j)];
+            // let r = ((elm >> 24_i32) & 0xff) as u8;
+            // let g = ((elm >> 16_i32) & 0xff) as u8;
+            // let b = ((elm >> 8_i32)  & 0xff) as u8;
+            // let a = ( elm            & 0xff) as u8;
+            // *pixel = Rgba([r, g, b, a]);
+            *pixel = rgba_pixel_from_i32(matrix[(x as usize, y as usize)]);
+        }
+    } else {
         for (x, y, pixel) in imgbuf.enumerate_pixels_mut() {
             let (i, j) = (x as usize, y as usize);
             let r = matrix[(2*i  , 2*j  )] as u8;
             let g = matrix[(2*i+1, 2*j  )] as u8;
             let b = matrix[(2*i  , 2*j+1)] as u8;
             let a = matrix[(2*i+1, 2*j+1)] as u8;
-            *pixel = Rgba([r, g, b, a]);
-        }
-    } else {
-        for (x, y, pixel) in imgbuf.enumerate_pixels_mut() {
-            let (i, j) = (x as usize, y as usize);
-            let elm = matrix[(i, j)];
-            let r = ((elm >> 24_i32) & 0xff) as u8;
-            let g = ((elm >> 16_i32) & 0xff) as u8;
-            let b = ((elm >> 8_i32)  & 0xff) as u8;
-            let a = ( elm            & 0xff) as u8;
             *pixel = Rgba([r, g, b, a]);
         }
     }
@@ -248,11 +252,23 @@ fn imgbuf_from_matrix_rgba(matrix: &DMatrix<i32>, aggregate: bool)
 fn imgbuf_from_matrix_rgb(matrix: &DMatrix<i32>, aggregate: bool)
     -> Result<RgbImage, Error> {
 
-    let (m_height, m_width) = matrix.shape();
-    let (height, width) = (m_height as u32/ 2, m_width as u32/ 2);
+    let (m_height0, m_width0) = matrix.shape();
+    let (m_height, m_width) = (m_height0 as u32, m_width0 as u32);
+
+    let mut imgbuf = if aggregate { ImageBuffer::new(m_height,     m_width) }
+                     else         { ImageBuffer::new(m_height / 2, m_width / 2) };
 
     if aggregate {
-        let mut imgbuf = ImageBuffer::new(m_height as u32, m_width as u32);
+        for (x, y, pixel) in imgbuf.enumerate_pixels_mut() {
+            // let (i, j) = (x as usize, y as usize);
+            // let elm = matrix[(i, j)];
+            // let r = ((elm >> 24_i32) & 0xff) as u8;
+            // let g = ((elm >> 16_i32) & 0xff) as u8;
+            // let b = ( elm            & 0xff) as u8;
+            // *pixel = Rgb([r, g, b]);
+            *pixel = rgb_pixel_from_i32(matrix[(x as usize, y as usize)]);
+        }
+    } else {
         for (x, y, pixel) in imgbuf.enumerate_pixels_mut() {
             let (i, j) = (x as usize, y as usize);
             let r = matrix[(2*i  , 2*j  )] as u8;
@@ -260,19 +276,9 @@ fn imgbuf_from_matrix_rgb(matrix: &DMatrix<i32>, aggregate: bool)
             let b = matrix[(2*i  , 2*j+1)] as u8;
             *pixel = Rgb([r, g, b]);
         }
-        Ok(imgbuf)
-    } else {
-        let mut imgbuf = ImageBuffer::new(height, width);
-        for (x, y, pixel) in imgbuf.enumerate_pixels_mut() {
-            let (i, j) = (x as usize, y as usize);
-            let elm = matrix[(i, j)];
-            let r = ((elm >> 24_i32) & 0xff) as u8;
-            let g = ((elm >> 16_i32) & 0xff) as u8;
-            let b = ( elm            & 0xff) as u8;
-            *pixel = Rgb([r, g, b]);
-        }
-        Ok(imgbuf)
     }
+
+    Ok(imgbuf)
 }
 
 fn sound_from_matrix(matrix: &DMatrix<i32>, header: (WavHeader, u32)) 
@@ -322,4 +328,49 @@ fn remove_vectors<T>(vectors: &mut SVDVectors<T>, options: &Options)
 
     vectors.truncate(n2);
     Ok(())
+}
+
+fn rgba_pixel_from_i32(p: i32) -> Rgba<u8> {
+    let mut r = 0_u8; let mut g = 0_u8; let mut b = 0_u8; let mut a = 0_u8;
+    let mut t = p;
+    for i in 0..8 {
+        let x = 1 << i as u8;
+        r |= if (t & 8) != 0 { x } else { 0 };
+        g |= if (t & 4) != 0 { x } else { 0 };
+        b |= if (t & 2) != 0 { x } else { 0 };
+        a |= if (t & 1) != 0 { x } else { 0 };
+        t >>= 4;
+    }
+    Rgba([r, g, b, a])
+}
+
+fn rgb_pixel_from_i32(p: i32) -> Rgb<u8> {
+    let mut r = 0_u8; let mut g = 0_u8; let mut b = 0_u8; 
+    let mut t = p >> 8;
+    for i in 0..8 {
+        let x = 1 << i as u8;
+        r |= if (t & 4) != 0 { x } else { 0 };
+        g |= if (t & 2) != 0 { x } else { 0 };
+        b |= if (t & 1) != 0 { x } else { 0 };
+        t >>= 3;
+    }
+    Rgb([r, g, b])
+}
+
+#[allow(dead_code, unused_imports)]
+mod tests {
+    
+    use crate::encode::i32_from_rgba_pixel;
+    use super::rgba_pixel_from_i32;
+
+    #[test]
+    fn test_jspity() {
+        let x = 12345876_i32;
+        let p = rgba_pixel_from_i32(x);
+        println!("pixel: {:?}", p);
+        let r = i32_from_rgba_pixel(p);
+        println!("res: {:b}", r);
+        println!("of:  {:b}", x);
+        assert_eq!(r, x);
+    }
 }

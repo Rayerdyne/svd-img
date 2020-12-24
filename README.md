@@ -72,7 +72,11 @@ svd-img compressed-thing.svd more-compressed-thing.svd -r -n 3
 | `--epsilon` | `-E`  | Sets the epsilon used for the computation of the SVD. That is, the value used to determine if a value converged to 0. Default is 1e-5. |
 | `--n-iter`  | `-i`  | Sets the maximum number of iteration allowed for the computation of the SVD. Default is 0 (what means until convergence) |
 
+## Note
+Using `--simple-precition` may lead to some errors if dealing with an alpha channel (`--with-alpha`) with aggregation (by default, use `--no-aggregate` to disable), as there is a 23-bit long fractionnal part, but per pixel we have `4 * 8 = 32` bits of payload. It's problematic, isn't it ? (Remember that the first bit is implied so that storing `3 * 4 = 24` bits should be ok, though I have no idea of the precision that may be lost during the computation of the SVD)
 
+The aggregation of pixels in one value is done to minimize th impact of this on one specific channels. If `x_k` denotes the `k`-th least significant bit of channel `x`, starting from the most significant bit of the result: 
+`r_8 g_8 b_8 a_8 r_7 g_7 b_7 a_7 ...`
 
 
 ------------------------------

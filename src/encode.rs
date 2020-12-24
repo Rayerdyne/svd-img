@@ -4,13 +4,14 @@ use super::{
 };
 
 use std::{
-    fs::File,
+    fs::{self, File},
     path::Path,
 };
 
 use image::{
     io::Reader as ImageReader,
     DynamicImage,
+    Rgb, Rgba,
     RgbImage, RgbaImage
 };
 
@@ -22,12 +23,16 @@ use wav::{
 use nalgebra::{ DMatrix, DVector, Scalar };
 
 pub type SVDVectors<T> = Vec<(T, DVector<T>, DVector<T>)>;
+pub trait Printable {
+    fn to_string(&self) -> String;
+}
 
 pub struct Options {
     pub policy: CompressionPolicy,
     pub use_f64: bool,
     pub eps: f32,
     pub n_iter: usize,
+    pub original_file_size: u64,
 
     pub use_aggregate: bool,
     pub with_alpha: bool,
@@ -50,12 +55,15 @@ pub fn encode(input: &str, output: &str, options: &mut Options)
     options.is_wav |= input.ends_with(".WAV") ||
                       input.ends_with(".wav");
 
+    let metadata = fs::metadata(Path::new(input))?;
+    options.original_file_size = metadata.len();
+
     let (matrix, header) = if !options.is_wav {
         let img = read_image_file(input)?;
         if options.with_alpha {
-            (image_matrix_rgba(img.into_rgba8(), !options.use_aggregate), None)
+            (image_matrix_rgba(img.into_rgba8(), options.use_aggregate), None)
         } else {
-            (image_matrix_rgb(img.into_rgb8(), !options.use_aggregate), None)
+            (image_matrix_rgb(img.into_rgb8(), options.use_aggregate), None)
         }
         // let xx = img.into_rgba8();
 
@@ -78,11 +86,13 @@ pub fn encode(input: &str, output: &str, options: &mut Options)
 
     if options.use_f64 {
         let vectors: SVDVectors<f64> = matrix_reduce_f64(&matrix, options)?;
+        // println!("{}", vectors.to_string());
         write_vectors_header(&mut fw, &vectors, &options, header)?;
         write_vectors_f64(&mut fw, &vectors)?;
     }
     else {
         let vectors: SVDVectors<f32> = matrix_reduce_f32(&matrix, options)?;
+        // println!("{}", vectors.to_string());
         write_vectors_header(&mut fw, &vectors, &options, header)?;
         write_vectors_f32(&mut fw, &vectors)?;
     }
@@ -106,14 +116,15 @@ fn image_matrix_rgba(img: RgbaImage, aggregate: bool) -> DMatrix<i32> {
 
     if aggregate {
         DMatrix::from_fn(dim.0 as usize, dim.1 as usize, |i, j| {
-            let pixel = img[(i as u32, j as u32)];
-            (pixel[0] as i32) << 24_i32 + 
-            (pixel[1] as i32) << 16_i32 +
-            (pixel[2] as i32) << 8_i32  +
-            pixel[3] as i32
+            i32_from_rgba_pixel(img[(i as u32, j as u32)])
+            // let pixel = img[(i as u32, j as u32)];
+            // (pixel[0] as i32) << 24_i32 + 
+            // (pixel[1] as i32) << 16_i32 +
+            // (pixel[2] as i32) << 8_i32  +
+            // pixel[3] as i32
         })
     } else {
-        let mut a = DMatrix::<i32>::zeros(dim.0 as usize, dim.1 as usize);
+        let mut a = DMatrix::<i32>::zeros(dim.0 as usize * 2, dim.1 as usize * 2);
         for i in 0..(dim.0 as usize) {
             for j in 0..(dim.1 as usize) {
                 let pixel = img[(i as u32, j as u32)];
@@ -133,13 +144,14 @@ fn image_matrix_rgb(img: RgbImage, aggregate: bool) -> DMatrix<i32> {
 
     if aggregate {
         DMatrix::from_fn(dim.0 as usize, dim.1 as usize, |i, j| {
-            let pixel = img[(i as u32, j as u32)];
-            (pixel[0] as i32) << 16_i32 + 
-            (pixel[1] as i32) << 8_i32 +
-            pixel[2] as i32
+            i32_from_rgb_pixel(img[(i as u32, j as u32)])
+            // let pixel = img[(i as u32, j as u32)];
+            // (pixel[0] as i32) << 16_i32 + 
+            // (pixel[1] as i32) << 8_i32 +
+            // pixel[2] as i32
         })
     } else {
-        let mut a = DMatrix::<i32>::zeros(dim.0 as usize, dim.1 as usize);
+        let mut a = DMatrix::<i32>::zeros(dim.0 as usize * 2, dim.1 as usize * 2);
         for i in 0..(dim.0 as usize) {
             for j in 0..(dim.1 as usize) {
                 let pixel = img[(i as u32, j as u32)];
@@ -340,6 +352,7 @@ impl Options {
             policy: CompressionPolicy::with_ratio_percentage(25),
             use_f64: true,
             n_iter: 0,
+            original_file_size: 0,
 
             use_aggregate: true,
             with_alpha: false,
@@ -351,16 +364,7 @@ impl Options {
     }
 
     pub (crate) fn n_with(&self, h: usize, w: usize) -> Result<usize, Error> {
-        let file_size = if self.is_wav {
-            // not exactly but it will be fine
-            self.bits_per_sample.unwrap() as f64 * w as f64 * h as f64 / 8.0
-        } else if self.is_reduce {
-            let f = if self.use_f64 { 8 } else { 4 };
-            (f * h * w) as f64
-        } else {
-            let s = w as f64 * h as f64;
-            if self.use_aggregate { s / 4_f64 } else { s }
-        };
+        println!("Original file size: {}", self.original_file_size);
 
         match self.policy {
             CompressionPolicy::Number(n) => {
@@ -374,11 +378,23 @@ impl Options {
 
                 let vector_size = data_bits * (1_f64 + h as f64 + w as f64);
                 // n * vector_size = r_f64 * img_size
-                let n = (r_f64 * file_size) / vector_size;
+                let n = (r_f64 * self.original_file_size as f64) / vector_size;
                 if n.round() <= 0.0 {  return Err(Error::RatioTooRestrictive);  }
+                println!("Output file size: {}", n * vector_size);
                 Ok(n.round() as usize)
             }
         }
+    }
+}
+
+impl<T> Printable for SVDVectors<T> 
+    where T: Scalar + std::fmt::Display {
+        fn to_string(&self) -> String {
+            let mut s = String::new();
+            for (sigma, u, v_t) in self {
+                s.push_str(&format!("\\sigma: {}\nu: {}\nv_t: {}\n", sigma, u, v_t));
+            }
+            s
     }
 }
 
@@ -399,4 +415,31 @@ fn f32_from_i32_bad(x: i32) -> f32 {
     }
 
     if x < 0 { -r } else { r }
+}
+
+pub(crate) fn i32_from_rgba_pixel(p: Rgba<u8>) -> i32 {
+    let mut r = 0_i32;
+    for i in 0..8 {
+        let x = 1 << i;
+        let i4 = 4 * i;
+        let y = 1 << i4;
+        r |= if p[0] & x != 0 { y << 3 } else { 0 };
+        r |= if p[1] & x != 0 { y << 2 } else { 0 };
+        r |= if p[2] & x != 0 { y << 1 } else { 0 };
+        r |= if p[3] & x != 0 { y      } else { 0 };
+    }
+    r
+}
+
+pub(crate) fn i32_from_rgb_pixel(p: Rgb<u8>) -> i32 {
+    let mut r = 0_i32;
+    for i in 0..8 {
+        let x = 1 << i;
+        let i3 = 3 * i;
+        let y = 1 << i3 as i32;
+        r |= if p[0] & x != 0 { y << 2 } else { 0 };
+        r |= if p[1] & x != 0 { y << 1 } else { 0 };
+        r |= if p[2] & x != 0 { y      } else { 0 };
+    }
+    r << 8
 }
