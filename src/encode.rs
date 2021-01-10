@@ -1,6 +1,17 @@
+use crate::aggregate;
+
 use super::{
     Error,
-    write::FileWriter
+    write::FileWriter,
+    aggregate::Aggregator,
+
+    decode::{
+        recompute_matrix_f64,
+        recompute_matrix_f32,
+        imgbuf_from_matrix_rgb,
+        imgbuf_from_matrix_rgba,
+        sound_from_matrix, 
+    },
 };
 
 use std::{
@@ -11,7 +22,6 @@ use std::{
 use image::{
     io::Reader as ImageReader,
     DynamicImage,
-    Rgb, Rgba,
     RgbImage, RgbaImage
 };
 
@@ -35,6 +45,7 @@ pub struct Options {
     pub original_file_size: u64,
 
     pub use_aggregate: bool,
+    pub aggregator: Option<Box<dyn Aggregator>>,
     pub with_alpha: bool,
 
     pub is_wav: bool, 
@@ -52,18 +63,84 @@ pub enum CompressionPolicy {
 pub fn encode(input: &str, output: &str, options: &mut Options) 
     -> Result<(), Error> {
 
+    let (matrix, header) = read_matrix(input, options)?;
+
+    let mut fw = FileWriter::from_name(output)?;
+
+    if options.use_f64 {
+        let vectors: SVDVectors<f64> = matrix_reduce_f64(&matrix, options)?;
+        // println!("{}", vectors.to_string());
+        let rec = recompute_matrix_f64(&vectors)?;
+        println!("recomputed: {}", rec);
+        
+        write_vectors_header(&mut fw, &vectors, &options, header)?;
+        write_vectors_f64(&mut fw, &vectors)?;
+    }
+    else {
+        let vectors: SVDVectors<f32> = matrix_reduce_f32(&matrix, options)?;
+        // println!("{}", vectors.to_string());
+        write_vectors_header(&mut fw, &vectors, &options, header)?;
+        write_vectors_f32(&mut fw, &vectors)?;
+    }
+
+    Ok(())
+}
+
+pub fn fuck_up(input: &str, output: &str, options: &mut Options) 
+    -> Result<(), Error> {
+
+    let (matrix, header) = read_matrix(input, options)?;
+    
+    let recomputed = if options.use_f64 {
+        let vectors: SVDVectors<f64> = matrix_reduce_f64(&matrix, options)?;
+        recompute_matrix_f64(&vectors)?
+    }
+    else {
+        let vectors: SVDVectors<f32> = matrix_reduce_f32(&matrix, options)?;
+        recompute_matrix_f32(&vectors)?
+    };
+
+    if options.is_wav {
+        let h = header.unwrap();
+        let raw_data = sound_from_matrix(&matrix, h);
+        let mut out_file = File::create(Path::new(output))?;
+        wav::write(h.0, raw_data, &mut out_file)?;
+
+    } else {
+        if options.with_alpha {
+            let imgbuf = imgbuf_from_matrix_rgba(&recomputed, &options.aggregator)?;
+            imgbuf.save(output).unwrap();
+        } else {
+            let imgbuf = imgbuf_from_matrix_rgb(&recomputed, &options.aggregator)?;
+            imgbuf.save(output).unwrap();
+        }
+    }
+
+    Ok(())
+
+}
+
+fn read_matrix(input: &str, options: &mut Options)
+    -> Result<(DMatrix<i32>, Option<(WavHeader, u32)>), Error> {
+
     options.is_wav |= input.ends_with(".WAV") ||
                       input.ends_with(".wav");
 
     let metadata = fs::metadata(Path::new(input))?;
     options.original_file_size = metadata.len();
 
-    let (matrix, header) = if !options.is_wav {
+    if !options.is_wav {
         let img = read_image_file(input)?;
         if options.with_alpha {
-            (image_matrix_rgba(img.into_rgba8(), options.use_aggregate), None)
+            Ok(
+                (image_matrix_rgba(img.into_rgba8(), &options.aggregator), 
+                 None)
+            )
         } else {
-            (image_matrix_rgb(img.into_rgb8(), options.use_aggregate), None)
+            Ok(
+                (image_matrix_rgb(img.into_rgb8(), &options.aggregator), 
+                 None)
+            )
         }
         // let xx = img.into_rgba8();
 
@@ -79,25 +156,11 @@ pub fn encode(input: &str, output: &str, options: &mut Options)
             _ => 0,
         };
 
-        (sound_matrix(&sound_data).unwrap(), Some((header_small, n as u32)))
-    };
-
-    let mut fw = FileWriter::from_name(output)?;
-
-    if options.use_f64 {
-        let vectors: SVDVectors<f64> = matrix_reduce_f64(&matrix, options)?;
-        // println!("{}", vectors.to_string());
-        write_vectors_header(&mut fw, &vectors, &options, header)?;
-        write_vectors_f64(&mut fw, &vectors)?;
+        Ok(
+            (sound_matrix(&sound_data).unwrap(), 
+             Some((header_small, n as u32)))
+        )
     }
-    else {
-        let vectors: SVDVectors<f32> = matrix_reduce_f32(&matrix, options)?;
-        // println!("{}", vectors.to_string());
-        write_vectors_header(&mut fw, &vectors, &options, header)?;
-        write_vectors_f32(&mut fw, &vectors)?;
-    }
-
-    Ok(())
 }
 
 pub fn read_image_file(name: &str) -> Result<DynamicImage, Error> {
@@ -111,12 +174,14 @@ pub fn read_image_file(name: &str) -> Result<DynamicImage, Error> {
 }
 
 /// Returns a DMatrix<i32> containing the data of the Rgba image.
-fn image_matrix_rgba(img: RgbaImage, aggregate: bool) -> DMatrix<i32> {
+fn image_matrix_rgba(img: RgbaImage, aggregator: &Option<Box<dyn Aggregator>>) 
+    -> DMatrix<i32> {
+
     let dim = img.dimensions();
 
-    if aggregate {
+    if let Some(ag) = aggregator {
         DMatrix::from_fn(dim.0 as usize, dim.1 as usize, |i, j| {
-            i32_from_rgba_pixel(img[(i as u32, j as u32)])
+            ag.i32_from_rgba(img[(i as u32, j as u32)])
             // let pixel = img[(i as u32, j as u32)];
             // (pixel[0] as i32) << 24_i32 + 
             // (pixel[1] as i32) << 16_i32 +
@@ -139,12 +204,13 @@ fn image_matrix_rgba(img: RgbaImage, aggregate: bool) -> DMatrix<i32> {
 }
 
 /// Returns a DMatrix<i32> containing the data of the Rgb image.
-fn image_matrix_rgb(img: RgbImage, aggregate: bool) -> DMatrix<i32> {
+fn image_matrix_rgb(img: RgbImage, aggregator: &Option<Box<dyn Aggregator>>)
+    -> DMatrix<i32> {
     let dim = img.dimensions();
 
-    if aggregate {
+    if let Some(ag) = aggregator {
         DMatrix::from_fn(dim.0 as usize, dim.1 as usize, |i, j| {
-            i32_from_rgb_pixel(img[(i as u32, j as u32)])
+            ag.i32_from_rgb(img[(i as u32, j as u32)])
             // let pixel = img[(i as u32, j as u32)];
             // (pixel[0] as i32) << 16_i32 + 
             // (pixel[1] as i32) << 8_i32 +
@@ -355,6 +421,7 @@ impl Options {
             original_file_size: 0,
 
             use_aggregate: true,
+            aggregator: Some(Box::new(aggregate::Aggregator1)),
             with_alpha: false,
 
             is_wav: false,
@@ -415,31 +482,4 @@ fn f32_from_i32_bad(x: i32) -> f32 {
     }
 
     if x < 0 { -r } else { r }
-}
-
-pub(crate) fn i32_from_rgba_pixel(p: Rgba<u8>) -> i32 {
-    let mut r = 0_i32;
-    for i in 0..8 {
-        let x = 1 << i;
-        let i4 = 4 * i;
-        let y = 1 << i4;
-        r |= if p[0] & x != 0 { y << 3 } else { 0 };
-        r |= if p[1] & x != 0 { y << 2 } else { 0 };
-        r |= if p[2] & x != 0 { y << 1 } else { 0 };
-        r |= if p[3] & x != 0 { y      } else { 0 };
-    }
-    r
-}
-
-pub(crate) fn i32_from_rgb_pixel(p: Rgb<u8>) -> i32 {
-    let mut r = 0_i32;
-    for i in 0..8 {
-        let x = 1 << i;
-        let i3 = 3 * i;
-        let y = 1 << i3 as i32;
-        r |= if p[0] & x != 0 { y << 2 } else { 0 };
-        r |= if p[1] & x != 0 { y << 1 } else { 0 };
-        r |= if p[2] & x != 0 { y      } else { 0 };
-    }
-    r << 8
 }

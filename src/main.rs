@@ -2,16 +2,17 @@ mod read;
 mod write;
 mod encode;
 mod decode;
+mod aggregate;
 
 extern crate clap;
 use clap::{Arg, App};
-use encode::{encode, Options, CompressionPolicy};
+use encode::{encode, fuck_up, Options, CompressionPolicy};
 use decode::{decode, reduce};
 
 use std::io::Error as IOError;
 
 enum ActionTypes {
-    Encode, Decode, Reduce
+    Encode, Decode, Reduce, FuckUp
 }
 
 impl std::cmp::PartialEq for ActionTypes {
@@ -29,6 +30,10 @@ impl std::cmp::PartialEq for ActionTypes {
                 ActionTypes::Reduce => true,
                 _ => false,
             },
+            ActionTypes::FuckUp => match other {
+                ActionTypes::FuckUp => true,
+                _ => false
+            }
         }
     }
 
@@ -142,6 +147,18 @@ SVD, 0 for iterating until convergence")
                    (even without an alpha channel).")
             .short("s")
             .long("no-aggregate"))
+        .arg(Arg::with_name("aggregator-id")
+            .help("Sets the id of the aggregator to use. Its my stuff so \
+                  shut up pls, I do what I want for testing.")
+            .short("A")
+            .long("aggregator-id")
+            .takes_value(true)
+            .conflicts_with("no-aggregate"))
+        .arg(Arg::with_name("fuck-up")
+            .help("Reads the input, computes the SVD and re-exports the \
+                   approximated result in the output.")
+            .short("f")
+            .long("fuck-up"))
         .get_matches()
 }
 
@@ -155,6 +172,8 @@ fn main() -> Result<(), Error> {
                              { ActionTypes::Decode }
                         else if matches.is_present("mode-reduce")
                              { ActionTypes::Reduce }
+                        else if matches.is_present("fuck-up")
+                             { ActionTypes::FuckUp }
                         else { ActionTypes::Encode };
 
     let mut options = Options::default();
@@ -180,7 +199,23 @@ fn main() -> Result<(), Error> {
     options.is_reduce = matches.is_present("mode-reduce");
     
     options.with_alpha = matches.is_present("with-alpha");
-    options.use_aggregate = !matches.is_present("no-aggregate");
+    if matches.is_present("no-aggregate") {
+        options.aggregator = None;
+    } else if matches.is_present("aggregator-id") {
+        let id = match matches.value_of("aggregator-id").unwrap().
+                               parse::<usize>() {
+            Ok(n) => n,
+            Err(e) => {
+                println!("Invalid aggregator id: {:?}", e);
+                return Ok(());
+            }
+        };
+        if id == 2 {
+            options.aggregator = Some(Box::new(aggregate::Aggregator2));
+        } else {
+            options.aggregator = Some(Box::new(aggregate::Aggregator1));
+        }
+    }
 
     options.policy = match matches.value_of("num-vectors") {
         Some(n_str) => match n_str.parse::<usize>() {
@@ -217,7 +252,10 @@ fn main() -> Result<(), Error> {
         encode(input, output, &mut options)
     }
     else if action_type == ActionTypes::Decode {
-        decode(input, output)
+        decode(input, output, &mut options)
+    }
+    else if action_type == ActionTypes::FuckUp {
+        fuck_up(input, output, &mut options)
     }
     else /* action_type == ActionTypes::Reduce */ {
         reduce(input, output, &options)        
@@ -229,6 +267,7 @@ fn main() -> Result<(), Error> {
                 ActionTypes::Encode => "encode",
                 ActionTypes::Decode => "decode",
                 ActionTypes::Reduce => "reduce",
+                ActionTypes::FuckUp => "fuck up",
             }, e),
         Ok(_) => {}
     }
